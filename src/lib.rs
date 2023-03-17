@@ -1,5 +1,7 @@
 mod frontend;
 mod ir;
+mod irgen;
+mod opt;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right
