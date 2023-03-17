@@ -9,7 +9,7 @@ use clap::Parser;
 
 use lang_c::ast::TranslationUnit;
 
-use lir::{frontutils::Translate, ir, ok_or_exit, Parse};
+use lir::{ir, ok_or_exit, Irgen, Parse, Translate};
 
 #[derive(Debug, Parser)]
 #[clap(name = "lir")]

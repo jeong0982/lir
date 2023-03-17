@@ -5,7 +5,8 @@ use lang_c::ast::*;
 use lang_c::driver::{parse, Config, Error as ParseError};
 use lang_c::span::Node;
 
-use crate::frontend::utils::*;
+use crate::frontutils::*;
+use crate::utils::*;
 
 #[derive(Debug)]
 pub enum Error {
