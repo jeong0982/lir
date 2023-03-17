@@ -1,7 +1,11 @@
 mod frontend;
-mod ir;
+pub mod ir;
 mod irgen;
 mod opt;
+pub mod utils;
+
+pub use frontend::utils as frontutils;
+pub use frontend::Parse;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right

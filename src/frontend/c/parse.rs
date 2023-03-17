@@ -131,27 +131,11 @@ impl AssertSupported for TypeSpecifier {
             Self::Bool => (),
             Self::Complex => panic!("TypeSpecifier::Complex"),
             Self::Atomic(_) => panic!("TypeSpecifier::Atomic"),
-            Self::Struct(struct_type) => struct_type.assert_supported(),
+            Self::Struct(_) => panic!("TypeSpecifier::Struct"),
             Self::Enum(_) => panic!("TypeSpecifier::Enum"),
             Self::TypedefName(_) => (),
             Self::TypeOf(_) => panic!("TypeSpecifier::TypeOf"),
             Self::TS18661Float(_) => panic!("TypeSpecifier::TS18661Float"),
-        }
-    }
-}
-
-impl AssertSupported for StructType {
-    fn assert_supported(&self) {
-        self.kind.assert_supported();
-        self.declarations.assert_supported();
-    }
-}
-
-impl AssertSupported for StructDeclaration {
-    fn assert_supported(&self) {
-        match self {
-            Self::Field(field) => field.assert_supported(),
-            Self::StaticAssert(_) => panic!("StructDeclaration::StaticAssert"),
         }
     }
 }

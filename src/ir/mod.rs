@@ -55,10 +55,6 @@ pub enum Instruction {
         operand: Operand,
         dtype: Dtype,
     },
-    Store {
-        ptr: Operand,
-        value: Operand,
-    },
     Lookup {
         ptr: Operand,
     },

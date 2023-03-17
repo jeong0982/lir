@@ -5,6 +5,19 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+name = "lir"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lir"
+path = "bin/lir.rs"
+required-features = ["build-bin"]
+
+[features]
+build-bin = ["clap"]
+
 [dependencies]
 # front-end
 lang-c = "0.15.0"
+clap = { version = "4.1.7", features = ["derive"], optional = true }
