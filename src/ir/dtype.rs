@@ -90,6 +90,7 @@ pub enum Dtype {
     Unit,
     Int { width: usize, is_signed: bool },
     Function { ret: Box<Dtype>, params: Vec<Dtype> },
+    Pointer { inner: Box<Dtype> },
     // Array {
     //     inner: Box<Dtype>,
     //     size: usize,
@@ -159,6 +160,13 @@ impl Dtype {
         }
     }
 
+    #[inline]
+    pub fn pointer(inner: Dtype) -> Self {
+        Self::Pointer {
+            inner: Box::new(inner),
+        }
+    }
+
     #[must_use]
     pub fn set_signed(&self, is_signed: bool) -> Self {
         match self {
@@ -170,12 +178,52 @@ impl Dtype {
         }
     }
 
+    pub fn size_align_of(&self) -> Result<(usize, usize), DtypeError> {
+        match self {
+            Self::Unit { .. } => Ok((0, 1)),
+            Self::Int { width, .. } => {
+                let size_of = (*width + Self::BITS_OF_BYTE - 1) / Self::BITS_OF_BYTE;
+                let align_of = size_of;
+
+                Ok((size_of, align_of))
+            }
+            Self::Pointer { .. } => Ok((Self::SIZE_OF_INT * 2, Self::SIZE_OF_INT * 2)),
+            Self::Function { .. } => Ok((0, 1)),
+        }
+    }
+
+    #[inline]
+    pub fn get_int_width(&self) -> Option<usize> {
+        if let Self::Int { width, .. } = self {
+            Some(*width)
+        } else {
+            None
+        }
+    }
+
     #[inline]
     pub fn get_function_inner(&self) -> Option<(&Self, &Vec<Self>)> {
         if let Self::Function { ret, params } = self {
             Some((ret.deref(), params))
         } else {
             None
+        }
+    }
+
+    #[inline]
+    pub fn get_pointer_inner(&self) -> Option<&Self> {
+        if let Self::Pointer { inner, .. } = self {
+            Some(inner.deref())
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_int_signed(&self) -> bool {
+        match self {
+            Self::Int { is_signed, .. } => *is_signed,
+            _ => panic!("only `Dtype::Int` can be judged whether it is signed"),
         }
     }
 
@@ -232,6 +280,9 @@ impl fmt::Display for Dtype {
             }
             Self::Function { ret, params } => {
                 write!(f, "[ret:{} params:({})]", ret, params.iter().format(", "))
+            }
+            Self::Pointer { inner } => {
+                write!(f, "{}*", inner)
             }
         }
     }

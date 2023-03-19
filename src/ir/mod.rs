@@ -4,6 +4,7 @@ mod interp;
 pub use dtype::{Dtype, DtypeError, HasDtype};
 
 use core::ops::{Deref, DerefMut};
+use itertools::Itertools;
 use lang_c::ast;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -46,7 +47,7 @@ impl TryFrom<Dtype> for Declaration {
             Dtype::Unit { .. } => Err(DtypeError::Misc {
                 message: "A variable of type `void` cannot be declared".to_string(),
             }),
-            Dtype::Int { .. } => Ok(Declaration::Variable {
+            Dtype::Int { .. } | Dtype::Pointer { .. } => Ok(Declaration::Variable {
                 dtype,
                 initializer: None,
             }),
@@ -136,6 +137,10 @@ pub enum Instruction {
     Lookup {
         ptr: Operand,
     },
+    Save {
+        ptr: Operand,
+        value: Operand,
+    },
     Call {
         callee: Operand,
         args: Vec<Operand>,
@@ -146,7 +151,7 @@ pub enum Instruction {
 impl HasDtype for Instruction {
     fn dtype(&self) -> Dtype {
         match self {
-            Self::Nop => Dtype::unit(),
+            Self::Nop | Self::Save { .. } => Dtype::unit(),
             Self::BinOp { dtype, .. }
             | Self::UnaryOp { dtype, .. }
             | Self::Call {
@@ -296,6 +301,9 @@ impl Hash for RegisterId {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Constant {
+    Undef {
+        dtype: Dtype,
+    },
     Unit,
     Int {
         value: u8,
@@ -304,9 +312,64 @@ pub enum Constant {
     },
 }
 
+impl TryFrom<&ast::Constant> for Constant {
+    type Error = ();
+
+    fn try_from(constant: &ast::Constant) -> Result<Self, Self::Error> {
+        match constant {
+            ast::Constant::Integer(integer) => {
+                let dtype = Dtype::INT;
+
+                let pat = 10;
+
+                let value = if integer.suffix.unsigned {
+                    u8::from_str_radix(integer.number.deref(), pat).unwrap()
+                } else {
+                    i8::from_str_radix(integer.number.deref(), pat).unwrap() as u8
+                };
+
+                let is_signed = !integer.suffix.unsigned && {
+                    let width = dtype.get_int_width().unwrap();
+                    let threshold = 1u8 << (width as u8 - 1);
+                    value < threshold
+                };
+
+                Ok(Self::int(value, dtype.set_signed(is_signed)))
+            }
+            ast::Constant::Float(float) => panic!("Float number is not supported"),
+            ast::Constant::Character(character) => {
+                let dtype = Dtype::CHAR;
+                let value = character.parse::<char>().unwrap() as u8;
+
+                Ok(Self::int(value, dtype))
+            }
+        }
+    }
+}
+
+impl TryFrom<&ast::Expression> for Constant {
+    type Error = ();
+
+    fn try_from(expr: &ast::Expression) -> Result<Self, Self::Error> {
+        match expr {
+            ast::Expression::Constant(constant) => Self::try_from(&constant.node),
+            ast::Expression::UnaryOperator(unary) => {
+                let constant = Self::try_from(&unary.node.operand.node)?;
+                match &unary.node.operator.node {
+                    ast::UnaryOperator::Minus => Ok(constant.minus()),
+                    ast::UnaryOperator::Plus => Ok(constant),
+                    _ => Err(()),
+                }
+            }
+            _ => Err(()),
+        }
+    }
+}
+
 impl fmt::Display for Constant {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Undef { .. } => write!(f, "undef"),
             Self::Unit => write!(f, "unit"),
             Self::Int {
                 value, is_signed, ..
@@ -326,10 +389,55 @@ impl fmt::Display for Constant {
 impl HasDtype for Constant {
     fn dtype(&self) -> Dtype {
         match self {
+            Self::Undef { dtype } => dtype.clone(),
             Self::Unit => Dtype::unit(),
             Self::Int {
                 width, is_signed, ..
             } => Dtype::int(*width).set_signed(*is_signed),
+        }
+    }
+}
+
+impl Constant {
+    #[inline]
+    pub fn undef(dtype: Dtype) -> Self {
+        Self::Undef { dtype }
+    }
+
+    #[inline]
+    pub fn unit() -> Self {
+        Self::Unit
+    }
+
+    #[inline]
+    pub fn int(value: u8, dtype: Dtype) -> Self {
+        let width = dtype.get_int_width().expect("`dtype` must be `Dtype::Int`");
+        let is_signed = dtype.is_int_signed();
+
+        Self::Int {
+            value,
+            width,
+            is_signed,
+        }
+    }
+
+    #[inline]
+    fn minus(self) -> Self {
+        match self {
+            Self::Int {
+                value,
+                width,
+                is_signed,
+            } => {
+                assert!(is_signed);
+                let minus_value = -(value as i8);
+                Self::Int {
+                    value: minus_value as u8,
+                    width,
+                    is_signed,
+                }
+            }
+            _ => panic!("must be integer"),
         }
     }
 }
@@ -370,6 +478,25 @@ pub enum BlockExit {
 pub struct JumpArg {
     pub bid: BlockId,
     pub args: Vec<Operand>,
+}
+
+impl JumpArg {
+    pub fn new(bid: BlockId, args: Vec<Operand>) -> Self {
+        Self { bid, args }
+    }
+}
+
+impl fmt::Display for JumpArg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}({})",
+            self.bid,
+            self.args
+                .iter()
+                .format_with(", ", |a, f| f(&format_args!("{}:{}", a, a.dtype())))
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
