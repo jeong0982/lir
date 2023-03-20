@@ -161,7 +161,7 @@ impl Irgen {
         let declarator = &source.declarator.node;
 
         let name = name_of_declarator(declarator);
-        println!("{}", name);
+
         let name_of_params = name_of_params_from_function_declarator(declarator)
             .expect("declarator is not from function definition");
 
