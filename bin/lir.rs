@@ -9,16 +9,42 @@ use clap::Parser;
 
 use lang_c::ast::TranslationUnit;
 
-use lir::{ir, ok_or_exit, Irgen, Parse, Translate};
+use lir::{ir, write, ok_or_exit, Deadcode, Irgen, Optimize, Parse, SimplifyCfg, Translate};
 
 #[derive(Debug, Parser)]
 #[clap(name = "lir")]
 struct LirCli {
-    #[clap(short, long)]
+    /// Parse C code
+    #[clap(long)]
     parse: bool,
 
+    /// Prints the input AST
+    #[clap(short, long)]
+    print: bool,
+
+    /// Generates IR
     #[clap(short, long)]
     irgen: bool,
+
+    /// Prints the input IR AST
+    #[clap(long)]
+    irprint: bool,
+
+    /// Optimizes IR
+    #[clap(short = 'O', long)]
+    optimize: bool,
+
+    /// Performs simplify-cfg
+    #[clap(long = "simplify-cfg")]
+    simplify_cfg: bool,
+
+    /// Performs deadcode elimination
+    #[clap(long)]
+    deadcode: bool,
+
+    /// Prints the output IR
+    #[clap(long)]
+    iroutput: bool,
 
     #[clap(short, long, value_name = "FILE")]
     output: Option<String>,
@@ -50,6 +76,11 @@ fn compile_c(input: &TranslationUnit, output: &mut Box<dyn Write>, matches: &Lir
         return;
     }
 
+    if matches.print {
+        write(input, output).unwrap();
+        return;
+    }
+
     let mut ir = match Irgen::default().translate(input) {
         Ok(ir) => ir,
         Err(irgen_error) => {
@@ -66,4 +97,25 @@ fn compile_c(input: &TranslationUnit, output: &mut Box<dyn Write>, matches: &Lir
     compile_ir(&mut ir, output, matches)
 }
 
-fn compile_ir(input: &mut ir::TranslationUnit, output: &mut dyn Write, matches: &LirCli) {}
+fn compile_ir(input: &mut ir::TranslationUnit, output: &mut dyn Write, matches: &LirCli) {
+    if matches.irprint {
+        write(input, output).unwrap();
+        return;
+    }
+
+    if matches.optimize {
+    } else {
+        if matches.simplify_cfg {
+            SimplifyCfg::default().optimize(input);
+        }
+
+        if matches.deadcode {
+            Deadcode::default().optimize(input);
+        }
+    }
+
+    if matches.iroutput {
+        write(input, output).unwrap();
+        return;
+    }
+}

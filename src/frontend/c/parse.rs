@@ -210,7 +210,7 @@ impl AssertSupported for DerivedDeclarator {
             Self::Pointer(pointer_qualifiers) => pointer_qualifiers.assert_supported(),
             Self::Array(array_decl) => array_decl.assert_supported(),
             Self::Function(func_decl) => func_decl.assert_supported(),
-            Self::KRFunction(_) => panic!("restrict"),
+            Self::KRFunction(kr_func_decl) => assert!(kr_func_decl.is_empty()),
             Self::Block(_) => panic!("DerivedDeclarator::Block"),
         }
     }

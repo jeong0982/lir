@@ -22,6 +22,14 @@ pub struct Repeat<O> {
     inner: O,
 }
 
+impl<T, O1: Optimize<T>, O2: Optimize<T>> Optimize<T> for (O1, O2) {
+    fn optimize(&mut self, code: &mut T) -> bool {
+        let changed1 = self.0.optimize(code);
+        let changed2 = self.1.optimize(code);
+        changed1 || changed2
+    }
+}
+
 impl<T, O: Optimize<T>> Optimize<T> for Repeat<O> {
     fn optimize(&mut self, code: &mut T) -> bool {
         if !self.inner.optimize(code) {

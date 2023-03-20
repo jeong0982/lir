@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Deref;
 
+use core::fmt;
 use core::mem;
 
 use itertools::izip;
@@ -10,6 +11,7 @@ use lang_c::span::Node;
 use thiserror::Error;
 
 use crate::ir::{DtypeError, HasDtype, Named};
+use crate::write_base::WriteString;
 use crate::utils::*;
 use crate::*;
 
@@ -22,6 +24,12 @@ pub struct IrgenError {
 impl IrgenError {
     pub fn new(code: String, message: IrgenErrorMessage) -> Self {
         Self { code, message }
+    }
+}
+
+impl fmt::Display for IrgenError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "error: {}\r\n\r\ncode: {}", self.message, self.code)
     }
 }
 
@@ -143,7 +151,7 @@ impl Irgen {
                     }
                 }
             }
-            self.add_decl(&name, decl);
+            self.add_decl(&name, decl)?;
         }
         Ok(())
     }
@@ -153,6 +161,7 @@ impl Irgen {
         let declarator = &source.declarator.node;
 
         let name = name_of_declarator(declarator);
+        println!("{}", name);
         let name_of_params = name_of_params_from_function_declarator(declarator)
             .expect("declarator is not from function definition");
 
@@ -180,7 +189,16 @@ impl Irgen {
         let decl = ir::Declaration::try_from(dtype).unwrap();
         self.add_decl(&name, decl)?;
 
-        let global_scope: HashMap<String, ir::Operand> = HashMap::new();
+        let global_scope: HashMap<_, _> = self
+            .decls
+            .iter()
+            .map(|(name, decl)| {
+                let dtype = decl.dtype();
+                let pointer = ir::Constant::global_variable(name.clone(), dtype);
+                let operand = ir::Operand::constant(pointer);
+                (name.clone(), operand)
+            })
+            .collect();
 
         // Prepares for irgen pass.
         let mut irgen = IrgenFunc {
@@ -413,7 +431,7 @@ impl IrgenFunc {
             }
         }
         Err(IrgenErrorMessage::Misc {
-            message: "undefined identifier".to_string(),
+            message: format!("undefined identifier: {}", identifier),
         })
     }
 
@@ -448,7 +466,292 @@ impl IrgenFunc {
 
                 Ok(())
             }
-            _ => todo!("translate_decl"),
+            Statement::Expression(expr) => {
+                if let Some(expr) = expr {
+                    let _ = self
+                        .translate_expr_rvalue(&expr.node, context)
+                        .map_err(|e| IrgenError::new(expr.write_string(), e))?;
+                }
+                Ok(())
+            }
+            Statement::If(stmt) => {
+                let bid_then = self.alloc_bid();
+                let bid_else = self.alloc_bid();
+                let bid_end = self.alloc_bid();
+
+                self.translate_condition(
+                    &stmt.node.condition.node,
+                    mem::replace(context, Context::new(bid_end)),
+                    bid_then,
+                    bid_else,
+                )
+                .map_err(|e| IrgenError::new(stmt.node.condition.write_string(), e))?;
+
+                let mut context_then = Context::new(bid_then);
+                self.translate_stmt(
+                    &stmt.node.then_statement.node,
+                    &mut context_then,
+                    bid_continue,
+                    bid_break,
+                )?;
+                self.insert_block(
+                    context_then,
+                    ir::BlockExit::Jump {
+                        arg: ir::JumpArg::new(bid_end, Vec::new()),
+                    },
+                );
+
+                let mut context_else = Context::new(bid_else);
+                if let Some(else_stmt) = &stmt.node.else_statement {
+                    self.translate_stmt(
+                        &else_stmt.node,
+                        &mut context_else,
+                        bid_continue,
+                        bid_break,
+                    )?;
+                }
+                self.insert_block(
+                    context_else,
+                    ir::BlockExit::Jump {
+                        arg: ir::JumpArg::new(bid_end, Vec::new()),
+                    },
+                );
+                Ok(())
+            }
+            Statement::Return(expr) => {
+                let value = match expr {
+                    Some(expr) => self
+                        .translate_expr_rvalue(&expr.node, context)
+                        .map_err(|e| IrgenError::new(expr.write_string(), e))?,
+                    None => ir::Operand::constant(ir::Constant::unit()),
+                };
+                let bid_end = self.alloc_bid();
+                self.insert_block(
+                    mem::replace(context, Context::new(bid_end)),
+                    ir::BlockExit::Return { value },
+                );
+                Ok(())
+            }
+            Statement::For(for_stmt) => {
+                let for_stmt = &for_stmt.node;
+
+                let bid_init = self.alloc_bid();
+                self.insert_block(
+                    mem::replace(context, Context::new(bid_init)),
+                    ir::BlockExit::Jump {
+                        arg: ir::JumpArg::new(bid_init, Vec::new()),
+                    },
+                );
+                self.enter_scope();
+                self.translate_for_initializer(&for_stmt.initializer.node, context)
+                    .map_err(|e| IrgenError::new(for_stmt.initializer.write_string(), e))?;
+
+                let bid_cond = self.alloc_bid();
+                self.insert_block(
+                    mem::replace(context, Context::new(bid_cond)),
+                    ir::BlockExit::Jump {
+                        arg: ir::JumpArg::new(bid_cond, Vec::new()),
+                    },
+                );
+                let bid_body = self.alloc_bid();
+                let bid_step = self.alloc_bid();
+                let bid_end = self.alloc_bid();
+                self.translate_opt_condition(
+                    &for_stmt.condition,
+                    mem::replace(context, Context::new(bid_end)),
+                    bid_body,
+                    bid_end,
+                )
+                .map_err(|e| IrgenError::new(for_stmt.condition.write_string(), e))?;
+
+                self.enter_scope();
+
+                let mut context_body = Context::new(bid_body);
+                self.translate_stmt(
+                    &for_stmt.statement.node,
+                    &mut context_body,
+                    Some(bid_step),
+                    Some(bid_end),
+                )?;
+
+                self.exit_scope();
+                self.insert_block(
+                    context_body,
+                    ir::BlockExit::Jump {
+                        arg: ir::JumpArg::new(bid_step, Vec::new()),
+                    },
+                );
+
+                let mut context_step = Context::new(bid_step);
+                if let Some(step_expr) = &for_stmt.step {
+                    let _ = self
+                        .translate_expr_rvalue(&step_expr.node, &mut context_step)
+                        .map_err(|e| IrgenError::new(for_stmt.step.write_string(), e))?;
+                }
+                self.insert_block(
+                    context_step,
+                    ir::BlockExit::Jump {
+                        arg: ir::JumpArg::new(bid_cond, Vec::new()),
+                    },
+                );
+                self.exit_scope();
+                Ok(())
+            }
+            Statement::While(while_stmt) => {
+                let while_stmt = &while_stmt.node;
+
+                let bid_cond = self.alloc_bid();
+                self.insert_block(
+                    mem::replace(context, Context::new(bid_cond)),
+                    ir::BlockExit::Jump {
+                        arg: ir::JumpArg::new(bid_cond, Vec::new()),
+                    },
+                );
+                let bid_body = self.alloc_bid();
+                let bid_end = self.alloc_bid();
+                self.translate_condition(
+                    &while_stmt.expression.node,
+                    mem::replace(context, Context::new(bid_end)),
+                    bid_body,
+                    bid_end,
+                )
+                .map_err(|e| IrgenError::new(while_stmt.expression.write_string(), e))?;
+
+                self.enter_scope();
+
+                let mut context_body = Context::new(bid_body);
+                self.translate_stmt(
+                    &while_stmt.statement.node,
+                    &mut context_body,
+                    Some(bid_cond),
+                    Some(bid_end),
+                )?;
+                self.insert_block(
+                    context_body,
+                    ir::BlockExit::Jump {
+                        arg: ir::JumpArg::new(bid_cond, Vec::new()),
+                    },
+                );
+
+                self.exit_scope();
+                Ok(())
+            }
+            Statement::DoWhile(do_while_stmt) => {
+                let while_stmt = &do_while_stmt.node;
+
+                let bid_body = self.alloc_bid();
+                self.insert_block(
+                    mem::replace(context, Context::new(bid_body)),
+                    ir::BlockExit::Jump {
+                        arg: ir::JumpArg::new(bid_body, Vec::new()),
+                    },
+                );
+                self.enter_scope();
+                let bid_cond = self.alloc_bid();
+                let bid_end = self.alloc_bid();
+                self.translate_stmt(
+                    &while_stmt.statement.node,
+                    context,
+                    Some(bid_cond),
+                    Some(bid_end),
+                )?;
+
+                self.exit_scope();
+                self.insert_block(
+                    mem::replace(context, Context::new(bid_cond)),
+                    ir::BlockExit::Jump {
+                        arg: ir::JumpArg::new(bid_cond, Vec::new()),
+                    },
+                );
+
+                self.translate_condition(
+                    &while_stmt.expression.node,
+                    mem::replace(context, Context::new(bid_end)),
+                    bid_body,
+                    bid_end,
+                )
+                .map_err(|e| IrgenError::new(while_stmt.expression.write_string(), e))?;
+                Ok(())
+            }
+            Statement::Continue => {
+                let bid_continue = bid_continue.ok_or_else(|| {
+                    IrgenError::new(
+                        "continue;".to_string(),
+                        IrgenErrorMessage::Misc {
+                            message: "continue statement not within a loop".to_string(),
+                        },
+                    )
+                })?;
+                let next_context = Context::new(self.alloc_bid());
+                self.insert_block(
+                    mem::replace(context, next_context),
+                    ir::BlockExit::Jump {
+                        arg: ir::JumpArg::new(bid_continue, Vec::new()),
+                    },
+                );
+                Ok(())
+            }
+            Statement::Break => {
+                let bid_break = bid_break.ok_or_else(|| {
+                    IrgenError::new(
+                        "break;".to_string(),
+                        IrgenErrorMessage::Misc {
+                            message: "break statement not within a loop or switch".to_string(),
+                        },
+                    )
+                })?;
+
+                let next_context = Context::new(self.alloc_bid());
+                self.insert_block(
+                    mem::replace(context, next_context),
+                    ir::BlockExit::Jump {
+                        arg: ir::JumpArg::new(bid_break, Vec::new()),
+                    },
+                );
+
+                Ok(())
+            }
+            _ => panic!("Unsupported statement"),
+        }
+    }
+
+    fn translate_for_initializer(
+        &mut self,
+        initializer: &ForInitializer,
+        context: &mut Context,
+    ) -> Result<(), IrgenErrorMessage> {
+        match initializer {
+            ForInitializer::Empty => (),
+            ForInitializer::Expression(expr) => {
+                let _ = self.translate_expr_rvalue(&expr.node, context)?;
+            }
+            ForInitializer::Declaration(decl) => {
+                return self.translate_decl(&decl.node, context);
+            }
+            ForInitializer::StaticAssert(_) => {
+                panic!("ForInitializer::StaticAssert is not supported")
+            }
+        }
+        Ok(())
+    }
+
+    fn translate_opt_condition(
+        &mut self,
+        condition: &Option<Box<Node<Expression>>>,
+        context: Context,
+        bid_then: ir::BlockId,
+        bid_else: ir::BlockId,
+    ) -> Result<(), IrgenErrorMessage> {
+        if let Some(condition) = condition {
+            self.translate_condition(&condition.node, context, bid_then, bid_else)
+        } else {
+            self.insert_block(
+                context,
+                ir::BlockExit::Jump {
+                    arg: ir::JumpArg::new(bid_then, Vec::new()),
+                },
+            );
+            Ok(())
         }
     }
 
@@ -1029,7 +1332,7 @@ impl IrgenFunc {
                     Ok(a)
                 } else {
                     Err(IrgenErrorMessage::Misc {
-                        message: "not compatible".to_string(),
+                        message: format!("uncompatible types: {}, {}", a.dtype(), p),
                     })
                 }
             })
@@ -1122,15 +1425,21 @@ fn name_of_params_from_derived_declarators(
     derived_decls: &[Node<DerivedDeclarator>],
 ) -> Option<Vec<String>> {
     for derived_decl in derived_decls {
-        if let DerivedDeclarator::Function(func_decl) = &derived_decl.node {
-            let name_of_params = func_decl
-                .node
-                .parameters
-                .iter()
-                .map(|p| name_of_parameter_declaration(&p.node))
-                .collect::<Option<Vec<_>>>()
-                .unwrap_or_default();
-            return Some(name_of_params);
+        match &derived_decl.node {
+            DerivedDeclarator::Function(func_decl) => {
+                let name_of_params = func_decl
+                    .node
+                    .parameters
+                    .iter()
+                    .map(|p| name_of_parameter_declaration(&p.node))
+                    .collect::<Option<Vec<_>>>()
+                    .unwrap_or_default();
+                return Some(name_of_params);
+            }
+            DerivedDeclarator::KRFunction(_kr_func_decl) => {
+                return Some(Vec::new());
+            }
+            _ => (),
         };
     }
 

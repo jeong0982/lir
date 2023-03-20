@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Deref;
 
 use crate::ir::*;
-use crate::opt::{FunctionPass, Optimize, opt_utils::*};
+use crate::opt::{opt_utils::*, FunctionPass, Optimize};
 use crate::*;
 use itertools::izip;
 

@@ -258,7 +258,11 @@ impl Dtype {
                     }
 
                     Self::function(self, params)
-                }
+                },
+                ast::DerivedDeclarator::KRFunction(kr_func_decl) => {
+                    assert!(kr_func_decl.is_empty());
+                    Self::function(self, Vec::new())
+                },
                 _ => panic!("Unsupported declarator"),
             };
         }

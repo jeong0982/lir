@@ -1,5 +1,6 @@
 mod dtype;
 mod interp;
+mod write_ir;
 
 pub use dtype::{Dtype, DtypeError, HasDtype};
 
@@ -9,6 +10,8 @@ use lang_c::ast;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+
+use crate::write_base::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TranslationUnit {
@@ -60,6 +63,26 @@ impl TryFrom<Dtype> for Declaration {
 }
 
 impl Declaration {
+    pub fn get_variable(&self) -> Option<(&Dtype, &Option<ast::Initializer>)> {
+        if let Self::Variable { dtype, initializer } = self {
+            Some((dtype, initializer))
+        } else {
+            None
+        }
+    }
+
+    pub fn get_function(&self) -> Option<(&FunctionSignature, &Option<FunctionDefinition>)> {
+        if let Self::Function {
+            signature,
+            definition,
+        } = self
+        {
+            Some((signature, definition))
+        } else {
+            None
+        }
+    }
+
     pub fn is_compatible(&self, other: &Declaration) -> bool {
         match (self, other) {
             (Self::Variable { dtype, .. }, Self::Variable { dtype: other, .. }) => dtype == other,
@@ -172,6 +195,74 @@ impl HasDtype for Instruction {
                 return_type: dtype, ..
             } => dtype.clone(),
             Self::Lookup { ptr } => ptr.dtype().clone(),
+        }
+    }
+}
+
+impl WriteOp for ast::BinaryOperator {
+    fn write_operation(&self) -> String {
+        match self {
+            Self::Multiply => "mul",
+            Self::Divide => "div",
+            Self::Modulo => "mod",
+            Self::Plus => "add",
+            Self::Minus => "sub",
+            Self::ShiftLeft => "shl",
+            Self::ShiftRight => "shr",
+            Self::Equals => "cmp eq",
+            Self::NotEquals => "cmp ne",
+            Self::Less => "cmp lt",
+            Self::LessOrEqual => "cmp le",
+            Self::Greater => "cmp gt",
+            Self::GreaterOrEqual => "cmp ge",
+            Self::BitwiseAnd => "and",
+            Self::BitwiseXor => "xor",
+            Self::BitwiseOr => "or",
+            _ => todo!(
+                "ast::BinaryOperator::WriteOp: write operation for {:?} is needed",
+                self
+            ),
+        }
+        .to_string()
+    }
+}
+
+impl WriteOp for ast::UnaryOperator {
+    fn write_operation(&self) -> String {
+        match self {
+            Self::Plus => "plus",
+            Self::Minus => "minus",
+            Self::Negate => "negate",
+            _ => todo!(
+                "ast::UnaryOperator::WriteOp: write operation for {:?} is needed",
+                self
+            ),
+        }
+        .to_string()
+    }
+}
+
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Instruction::Nop => write!(f, "nop"),
+            Instruction::BinOp { op, lhs, rhs, .. } => {
+                write!(f, "{} {} {}", op.write_operation(), lhs, rhs)
+            }
+            Instruction::UnaryOp { op, operand, .. } => {
+                write!(f, "{} {}", op.write_operation(), operand)
+            }
+            Instruction::Save { ptr, value } => write!(f, "save {value} {ptr}"),
+            Instruction::Lookup { ptr } => write!(f, "lookup {ptr}"),
+            Instruction::Call { callee, args, .. } => {
+                write!(
+                    f,
+                    "call {}({})",
+                    callee,
+                    args.iter()
+                        .format_with(", ", |operand, f| f(&format_args!("{operand}")))
+                )
+            }
         }
     }
 }
@@ -324,6 +415,10 @@ pub enum Constant {
         width: usize,
         is_signed: bool,
     },
+    GlobalVariable {
+        name: String,
+        dtype: Dtype,
+    },
 }
 
 impl TryFrom<&ast::Constant> for Constant {
@@ -350,7 +445,7 @@ impl TryFrom<&ast::Constant> for Constant {
 
                 Ok(Self::int(value, dtype.set_signed(is_signed)))
             }
-            ast::Constant::Float(float) => panic!("Float number is not supported"),
+            ast::Constant::Float(_) => panic!("Float number is not supported"),
             ast::Constant::Character(character) => {
                 let dtype = Dtype::CHAR;
                 let value = character.parse::<char>().unwrap() as u8;
@@ -396,6 +491,7 @@ impl fmt::Display for Constant {
                     value.to_string()
                 }
             ),
+            Self::GlobalVariable { name, .. } => write!(f, "@{}", name),
         }
     }
 }
@@ -408,6 +504,7 @@ impl HasDtype for Constant {
             Self::Int {
                 width, is_signed, ..
             } => Dtype::int(*width).set_signed(*is_signed),
+            Self::GlobalVariable { dtype, .. } => Dtype::pointer(dtype.clone()),
         }
     }
 }
@@ -432,6 +529,20 @@ impl Constant {
             value,
             width,
             is_signed,
+        }
+    }
+
+    #[inline]
+    pub fn global_variable(name: String, dtype: Dtype) -> Self {
+        Self::GlobalVariable { name, dtype }
+    }
+
+    #[inline]
+    pub fn get_global_variable_name(&self) -> Option<String> {
+        if let Self::GlobalVariable { name, .. } = self {
+            Some(name.clone())
+        } else {
+            None
         }
     }
 
@@ -486,6 +597,39 @@ pub enum BlockExit {
         value: Operand,
     },
     Unreachable,
+}
+
+impl BlockExit {
+    pub fn walk_jump_args<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&mut JumpArg),
+    {
+        match self {
+            Self::Jump { arg } => f(arg),
+            Self::ConditionalJump {
+                arg_then, arg_else, ..
+            } => {
+                f(arg_then);
+                f(arg_else);
+            }
+            Self::Return { .. } | Self::Unreachable => {}
+        }
+    }
+}
+
+impl fmt::Display for BlockExit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BlockExit::Jump { arg } => write!(f, "j {arg}"),
+            BlockExit::ConditionalJump {
+                condition,
+                arg_then,
+                arg_else,
+            } => write!(f, "br {condition}, {arg_then}, {arg_else}"),
+            BlockExit::Return { value } => write!(f, "ret {value}"),
+            BlockExit::Unreachable => write!(f, "<unreachable>\t\t\t\t; error state"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -547,5 +691,11 @@ impl<T> Named<T> {
 
     pub fn into_inner(self) -> T {
         self.inner
+    }
+}
+
+impl<T: fmt::Display> fmt::Display for Named<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.inner)
     }
 }
