@@ -724,8 +724,8 @@ impl IrgenFunc {
             | BinaryOperator::Less
             | BinaryOperator::LessOrEqual
             | BinaryOperator::NotEquals => {
-                let mut lhs = self.translate_expr_rvalue(lhs, context)?;
-                let mut rhs = self.translate_expr_rvalue(rhs, context)?;
+                let lhs = self.translate_expr_rvalue(lhs, context)?;
+                let rhs = self.translate_expr_rvalue(rhs, context)?;
                 let dtype = ir::Dtype::Int {
                     width: 1,
                     is_signed: false,

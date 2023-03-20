@@ -72,6 +72,20 @@ impl Declaration {
             _ => false,
         }
     }
+
+    pub fn get_function_mut(
+        &mut self,
+    ) -> Option<(&mut FunctionSignature, &mut Option<FunctionDefinition>)> {
+        if let Self::Function {
+            signature,
+            definition,
+        } = self
+        {
+            Some((signature, definition))
+        } else {
+            None
+        }
+    }
 }
 
 impl HasDtype for Declaration {
