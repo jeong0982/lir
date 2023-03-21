@@ -11,6 +11,6 @@ pub use frontend::Parse;
 pub use irgen::Irgen;
 pub use opt::{
     Deadcode, FunctionPass, Optimize, Repeat, SimplifyCfg, SimplifyCfgConstProp, SimplifyCfgEmpty,
-    SimplifyCfgMerge, SimplifyCfgReach,
+    SimplifyCfgMerge, SimplifyCfgReach, Mem2reg,
 };
 pub use utils::*;

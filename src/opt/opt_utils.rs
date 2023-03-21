@@ -4,7 +4,6 @@ use core::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Deref;
 
-/// "Replace-all-uses-with".
 pub trait Walk {
     fn walk<F>(&mut self, f: F)
     where

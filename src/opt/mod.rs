@@ -2,6 +2,7 @@ use crate::ir;
 use crate::*;
 
 mod deadcode;
+mod mem2reg;
 pub mod opt_utils;
 mod simplify_cfg;
 
@@ -9,6 +10,7 @@ pub use deadcode::Deadcode;
 pub use simplify_cfg::{
     SimplifyCfg, SimplifyCfgConstProp, SimplifyCfgEmpty, SimplifyCfgMerge, SimplifyCfgReach,
 };
+pub use mem2reg::Mem2reg;
 
 pub trait Optimize<T> {
     fn optimize(&mut self, code: &mut T) -> bool;
