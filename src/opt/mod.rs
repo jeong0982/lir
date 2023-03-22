@@ -2,19 +2,24 @@ use crate::ir;
 use crate::*;
 
 mod deadcode;
+mod gvn;
 mod mem2reg;
 pub mod opt_utils;
 mod simplify_cfg;
 
 pub use deadcode::Deadcode;
+pub use gvn::Gvn;
+pub use mem2reg::Mem2reg;
 pub use simplify_cfg::{
     SimplifyCfg, SimplifyCfgConstProp, SimplifyCfgEmpty, SimplifyCfgMerge, SimplifyCfgReach,
 };
-pub use mem2reg::Mem2reg;
 
 pub trait Optimize<T> {
     fn optimize(&mut self, code: &mut T) -> bool;
 }
+
+pub type O0 = Null;
+pub type O1 = Repeat<(SimplifyCfg, (Mem2reg, (Gvn, Deadcode)))>;
 
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Null;

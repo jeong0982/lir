@@ -234,7 +234,7 @@ impl Optimize<FunctionDefinition> for Mem2regInner {
                 });
             }
         }
-        
+
         if replaces.is_empty() {
             return false;
         }
