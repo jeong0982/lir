@@ -276,7 +276,7 @@ impl WriteString for (&Node<Identifier>, &Vec<Node<DerivedDeclarator>>) {
                 DerivedDeclarator::Array(ar) => format!("{}{}", s, ar.write_string()),
                 DerivedDeclarator::Function(fnc) => format!("{}{}", s, fnc.write_string()),
                 DerivedDeclarator::KRFunction(kr) => format!("{}({})", s, kr.write_string()),
-                DerivedDeclarator::Block(po) => format!("{}^{}", po.write_string(), s)
+                DerivedDeclarator::Block(po) => format!("{}^{}", po.write_string(), s),
             }
         }
         s
@@ -296,8 +296,8 @@ impl WriteString for Declarator {
                         DerivedDeclarator::Function(fnc) => format!("{}{}", s, fnc.write_string()),
                         DerivedDeclarator::KRFunction(kr) => {
                             format!("{}({})", s, &kr.write_string())
-                        },
-                        DerivedDeclarator::Block(po) => format!("{}^{}", po.write_string(), s)
+                        }
+                        DerivedDeclarator::Block(po) => format!("{}^{}", po.write_string(), s),
                     }
                 }
                 s
@@ -312,8 +312,8 @@ impl WriteString for Declarator {
                         DerivedDeclarator::Function(fnc) => format!("{}{}", s, fnc.write_string()),
                         DerivedDeclarator::KRFunction(kr) => {
                             format!("{}({})", s, &kr.write_string())
-                        },
-                        DerivedDeclarator::Block(po) => format!("{}^{}", po.write_string(), s)
+                        }
+                        DerivedDeclarator::Block(po) => format!("{}^{}", po.write_string(), s),
                     }
                 }
                 s
@@ -476,7 +476,7 @@ impl WriteString for Integer {
                 self.number.deref().to_string(),
                 self.suffix.write_string()
             ),
-            _ => panic!("Unsupported(write binary integerbase)")
+            _ => panic!("Unsupported(write binary integerbase)"),
         }
     }
 }
@@ -551,7 +551,7 @@ impl WriteString for Label {
             Self::Identifier(id) => id.write_string(),
             Self::Case(e) => format!("case {}:", e.write_string()),
             Self::Default => "default:".to_string(),
-            _ => panic!("Unsupported (write case range)")
+            _ => panic!("Unsupported (write case range)"),
         }
     }
 }
@@ -657,7 +657,7 @@ impl WriteString for SpecifierQualifier {
         match self {
             Self::TypeQualifier(tq) => tq.write_string(),
             Self::TypeSpecifier(ts) => ts.write_string(),
-            _ => panic!("Unsupported (write extension)")
+            _ => panic!("Unsupported (write extension)"),
         }
     }
 }
