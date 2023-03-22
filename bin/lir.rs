@@ -1,3 +1,6 @@
+use clap::Parser;
+
+use lang_c::ast::TranslationUnit;
 use std::ffi::OsStr;
 use std::{
     fs::File,
@@ -5,11 +8,10 @@ use std::{
     path::Path,
 };
 
-use clap::Parser;
-
-use lang_c::ast::TranslationUnit;
-
-use lir::{ir, write, ok_or_exit, Deadcode, Irgen, Optimize, Parse, SimplifyCfg, Translate};
+use lir::{
+    ir, ok_or_exit, write, Deadcode, Gvn, Irgen, Mem2reg, Optimize, Parse, SimplifyCfg, Translate,
+    O1,
+};
 
 #[derive(Debug, Parser)]
 #[clap(name = "lir")]
@@ -38,9 +40,17 @@ struct LirCli {
     #[clap(long = "simplify-cfg")]
     simplify_cfg: bool,
 
+    /// Performs mem2reg
+    #[clap(long)]
+    mem2reg: bool,
+
     /// Performs deadcode elimination
     #[clap(long)]
     deadcode: bool,
+
+    /// Performs gvn
+    #[clap(long)]
+    gvn: bool,
 
     /// Prints the output IR
     #[clap(long)]
@@ -104,13 +114,22 @@ fn compile_ir(input: &mut ir::TranslationUnit, output: &mut dyn Write, matches: 
     }
 
     if matches.optimize {
+        O1::default().optimize(input);
     } else {
         if matches.simplify_cfg {
             SimplifyCfg::default().optimize(input);
         }
 
+        if matches.mem2reg {
+            Mem2reg::default().optimize(input);
+        }
+
         if matches.deadcode {
             Deadcode::default().optimize(input);
+        }
+
+        if matches.gvn {
+            Gvn::default().optimize(input);
         }
     }
 
