@@ -137,10 +137,7 @@ impl Irgen {
                         }
                         *var_init = Some(initializer.node.clone());
                     }
-                    ir::Declaration::Function {
-                        signature,
-                        definition,
-                    } => {
+                    ir::Declaration::Function { .. } => {
                         return Err(IrgenError::new(
                             format!("{source:#?}"),
                             IrgenErrorMessage::Misc {
@@ -1176,7 +1173,7 @@ impl IrgenFunc {
             | BinaryOperator::AssignShiftLeft => {
                 let operator = bin_arith_op_of_bin_assignment_op(&op);
                 let lhs_operand = self.translate_expr_rvalue(lhs, context)?;
-                let mut rhs = self.translate_expr_rvalue(rhs, context)?;
+                let rhs = self.translate_expr_rvalue(rhs, context)?;
                 let lhs_dtype = lhs_operand.dtype();
                 let instr = ir::Instruction::BinOp {
                     op: operator,
@@ -1195,8 +1192,8 @@ impl IrgenFunc {
             }
             _ => (),
         };
-        let mut lhs = self.translate_expr_rvalue(lhs, context)?;
-        let mut rhs = self.translate_expr_rvalue(rhs, context)?;
+        let lhs = self.translate_expr_rvalue(lhs, context)?;
+        let rhs = self.translate_expr_rvalue(rhs, context)?;
         let lhs_dtype = lhs.dtype();
         let rhs_dtype = rhs.dtype();
         let dtype = self.merge_dtype(lhs_dtype.clone(), rhs_dtype.clone())?;
@@ -1209,11 +1206,6 @@ impl IrgenFunc {
         let operand = context.insert_instruction(instr)?;
 
         Ok(operand)
-    }
-
-    fn make_offset_constant(&mut self, offset: usize) -> ir::Operand {
-        let offset: u8 = offset as u8;
-        ir::Operand::constant(ir::Constant::int(offset, ir::Dtype::int(8)))
     }
 
     fn translate_unary_op(
