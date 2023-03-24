@@ -199,7 +199,6 @@ impl Irgen {
 
         // Prepares for irgen pass.
         let mut irgen = IrgenFunc {
-            return_type: signature.ret.clone(),
             bid_init: Irgen::BID_INIT,
             phinodes_init: Vec::new(),
             allocations: Vec::new(),
@@ -325,8 +324,6 @@ impl Context {
 }
 
 struct IrgenFunc {
-    /// return type of the function.
-    return_type: ir::Dtype,
     /// initial block id for the function, typically 0.
     bid_init: ir::BlockId,
     /// arguments represented as initial phinodes. Order must be the same of that given in the C

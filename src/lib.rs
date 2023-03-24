@@ -5,6 +5,7 @@ mod opt;
 mod utils;
 mod vm;
 mod write_base;
+mod backend;
 
 pub use frontend::utils as frontutils;
 pub use frontend::Parse;
@@ -15,3 +16,4 @@ pub use opt::{
 };
 pub use utils::*;
 pub use write_base::write;
+pub use vm::execute;

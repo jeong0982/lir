@@ -23,3 +23,6 @@ lang-c = "0.15.0"
 clap = { version = "4.1.7", features = ["derive"], optional = true }
 thiserror = "1.0.38"
 itertools = "0.10.5"
+
+# back-end
+cq = { git = "https://github.com/jeong0982/cq" }
