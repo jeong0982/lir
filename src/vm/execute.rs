@@ -1,8 +1,8 @@
 use crate::ir::*;
 use crate::vm::calculate_c::*;
+use crate::vm::*;
 use crate::*;
 use core::mem;
-use itertools::izip;
 use std::ops::Deref;
 use thiserror::Error;
 
@@ -27,7 +27,7 @@ pub enum ExecutionError {
 }
 
 impl<'i> State<'i> {
-    fn step(&mut self) -> Result<Option<Value>, ExecutionError> {
+    fn step(&mut self, _logs: &mut Vec<ExecStep>) -> Result<Option<Value>, ExecutionError> {
         let block = self
             .stack_frame
             .func_def
@@ -56,10 +56,11 @@ impl<'i> State<'i> {
         Ok(None)
     }
 
-    fn run(&mut self) -> Result<Value, ExecutionError> {
+    fn run(&mut self) -> Result<(Value, ExecTrace), ExecutionError> {
+        let mut logs = vec![];
         loop {
-            if let Some(value) = self.step()? {
-                return Ok(value);
+            if let Some(value) = self.step(&mut logs)? {
+                return Ok((value, ExecTrace { logs }));
             }
         }
     }
@@ -141,25 +142,6 @@ impl<'i> State<'i> {
                     }
                 })?
             }
-            Instruction::Save { ptr, value, .. } => {
-                let ptr = self.execute_operand(ptr)?;
-                let value = self.execute_operand(value)?;
-                let (bid, offset, _) = self.execute_ptr(&ptr)?;
-                self.memory
-                    .store(bid, offset, &value)
-                    .map_err(|_| ExecutionError::Misc {
-                        func_name: self.stack_frame.func_name.clone(),
-                        pc: self.stack_frame.pc,
-                        msg: format!(
-                            "fail to store {value:?} into memory with bid: {bid}, offset: {offset}",
-                        ),
-                    })?;
-                Value::Unit
-            }
-            Instruction::Lookup { ptr, .. } => {
-                let ptr = self.execute_operand(ptr)?;
-                self.memory.load(ptr)?
-            }
             Instruction::Call { callee, args, .. } => {
                 let ptr = self.execute_operand(callee)?;
 
@@ -176,7 +158,7 @@ impl<'i> State<'i> {
                     .decls
                     .get(&callee_name)
                     .expect("function must be declared before being called");
-                let (func_signature, func_def) = func
+                let (_, func_def) = func
                     .get_function()
                     .expect("`func` must be function declaration");
                 let func_def =
@@ -186,12 +168,7 @@ impl<'i> State<'i> {
                             func_name: callee_name.clone(),
                         })?;
 
-                let block_init = func_def
-                    .blocks
-                    .get(&func_def.bid_init)
-                    .expect("init block must exists");
-
-                let args = self.execute_args(func_signature, args)?;
+                let args = self.execute_args(args)?;
 
                 let stack_frame = StackFrame::new(func_def.bid_init, callee_name, func_def);
                 let prev_stack_frame = mem::replace(&mut self.stack_frame, stack_frame);
@@ -199,10 +176,10 @@ impl<'i> State<'i> {
 
                 // Initialize state with function obtained by callee and args
                 self.write_args(func_def.bid_init, args)?;
-                self.alloc_local_variables()?;
 
                 return Ok(());
             }
+            _ => panic!("Unsupported: memory")
         };
 
         let register = RegisterId::temp(self.stack_frame.pc.bid, self.stack_frame.pc.iid);
@@ -236,6 +213,7 @@ impl<'i> State<'i> {
     }
 
     fn alloc_global_variables(&mut self) -> Result<(), ExecutionError> {
+        // Unsupported for now
         for (name, decl) in &self.ir.decls {
             // Memory allocation
             let bid = self.memory.alloc(&decl.dtype())?;
@@ -303,25 +281,8 @@ impl<'i> State<'i> {
         }
     }
 
-    fn execute_ptr(&mut self, pointer: &Value) -> Result<(usize, isize, Dtype), ExecutionError> {
-        let (bid, offset, dtype) = pointer.get_pointer().ok_or_else(|| ExecutionError::Misc {
-            func_name: self.stack_frame.func_name.clone(),
-            pc: self.stack_frame.pc,
-            msg: "Accessing memory with non-pointer".into(),
-        })?;
-
-        let bid = bid.ok_or_else(|| ExecutionError::Misc {
-            func_name: self.stack_frame.func_name.clone(),
-            pc: self.stack_frame.pc,
-            msg: "Accessing memory with constant pointer".into(),
-        })?;
-
-        Ok((bid, *offset, dtype.clone()))
-    }
-
     fn execute_args(
         &self,
-        signature: &FunctionSignature,
         args: &[Operand],
     ) -> Result<Vec<Value>, ExecutionError> {
         args.iter()
@@ -357,7 +318,7 @@ impl<'i> State<'i> {
 }
 
 #[inline]
-pub fn execute(ir: &TranslationUnit, args: Vec<Value>) -> Result<Value, ExecutionError> {
+pub fn execute(ir: &TranslationUnit, args: Vec<Value>) -> Result<(Value, ExecTrace), ExecutionError> {
     let mut init_state = State::new(ir, args)?;
     init_state.run()
 }

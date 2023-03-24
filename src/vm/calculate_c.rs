@@ -1,8 +1,6 @@
-use crate::ir::*;
 use crate::vm::vm_types::Value;
 use crate::vm::*;
 use lang_c::ast;
-use std::cmp::Ordering;
 
 pub fn calculate_integer_binary_operator_expression(
     op: &ast::BinaryOperator,

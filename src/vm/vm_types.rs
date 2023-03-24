@@ -253,7 +253,6 @@ pub struct Memory(Vec<Vec<Value>>);
 
 impl Memory {
     pub fn alloc(&mut self, dtype: &Dtype) -> Result<usize, ExecutionError> {
-        // TODO: memory block will be handled as Vec<Byte>
         let memory_block = match dtype {
             Dtype::Unit { .. } => vec![],
             Dtype::Int { width, .. } => match width {
@@ -267,18 +266,6 @@ impl Memory {
         self.0.push(memory_block);
 
         Ok(self.0.len() - 1)
-    }
-
-    pub fn load(
-        &self, pointer: Value
-    ) -> Result<Value, ExecutionError> {
-        let (bid, offset, _) = pointer
-            .get_pointer()
-            .expect("`pointer` must be `Value::Pointer` to access memory");
-
-        let bid = bid.expect("read from memory using constant value address is not allowed");
-
-        Ok(self.0[bid][*offset as usize].clone())
     }
 
     pub fn store(&mut self, bid: usize, offset: isize, value: &Value) -> Result<(), ()> {

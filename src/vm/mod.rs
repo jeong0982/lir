@@ -4,6 +4,7 @@ mod vm_types;
 
 use crate::ir;
 use vm_types::*;
+pub use execute::execute;
 
 #[derive(Clone, Debug)]
 pub struct ExecTrace {

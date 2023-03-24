@@ -10,7 +10,7 @@ use std::{
 
 use lir::{
     ir, ok_or_exit, write, Deadcode, Gvn, Irgen, Mem2reg, Optimize, Parse, SimplifyCfg, Translate,
-    O1,
+    O1, execute,
 };
 
 #[derive(Debug, Parser)]
@@ -55,6 +55,10 @@ struct LirCli {
     /// Prints the output IR
     #[clap(long)]
     iroutput: bool,
+
+    /// Executes the input file
+    #[clap(long)]
+    irrun: bool,
 
     #[clap(short, long, value_name = "FILE")]
     output: Option<String>,
@@ -136,5 +140,11 @@ fn compile_ir(input: &mut ir::TranslationUnit, output: &mut dyn Write, matches: 
     if matches.iroutput {
         write(input, output).unwrap();
         return;
+    }
+
+    if matches.irrun {
+        let result = execute(input, Vec::new()).unwrap();
+        let (value, width, is_signed) = result.0.get_int().expect("non-integer value occurs");
+        println!("{}", value as u8);
     }
 }

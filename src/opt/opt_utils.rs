@@ -105,15 +105,6 @@ impl Walk for Operand {
     }
 }
 
-pub fn replace_operand(operand: &mut Operand, from: &Operand, to: &Operand) -> bool {
-    if operand == from {
-        *operand = to.clone();
-        true
-    } else {
-        false
-    }
-}
-
 pub fn replace_operands(operand: &mut Operand, to: &HashMap<RegisterId, Operand>) {
     match operand {
         Operand::Constant(_) => (),
@@ -308,15 +299,6 @@ impl Domtree {
 
     pub fn frontiers(&self, bid: BlockId) -> Option<&Vec<BlockId>> {
         self.frontiers.get(&bid)
-    }
-
-    pub fn walk<F>(&self, mut f: F)
-    where
-        F: FnMut(Option<BlockId>, BlockId),
-    {
-        for bid in &self.reverse_post_order {
-            f(self.parent.get(bid).cloned(), *bid);
-        }
     }
 }
 
