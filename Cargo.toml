@@ -15,7 +15,10 @@ path = "bin/lir.rs"
 required-features = ["build-bin"]
 
 [features]
+default = ["halo2"]
 build-bin = ["clap"]
+cq = ["dep:cq"]
+halo2 = ["dep:halo2_proofs"]
 
 [dependencies]
 # front-end
@@ -25,4 +28,9 @@ thiserror = "1.0.38"
 itertools = "0.10.5"
 
 # back-end
-cq = { git = "https://github.com/jeong0982/cq" }
+cq = { git = "https://github.com/jeong0982/cq", optional = true }
+ark-bn254 = "0.3.0"
+ark-ec = "0.3.0"
+ark-std = "0.3.0"
+
+halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2", tag = "v2023_02_02", optional = true }

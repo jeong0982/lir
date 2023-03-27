@@ -11,8 +11,8 @@ use lang_c::span::Node;
 use thiserror::Error;
 
 use crate::ir::{DtypeError, HasDtype, Named};
-use crate::write_base::WriteString;
 use crate::utils::*;
+use crate::write_base::WriteString;
 use crate::*;
 
 #[derive(Debug)]

@@ -212,10 +212,7 @@ impl Value {
     }
 
     #[allow(clippy::result_unit_err)]
-    pub fn try_from_initializer(
-        initializer: &ast::Initializer,
-        dtype: &Dtype,
-    ) -> Result<Self, ()> {
+    pub fn try_from_initializer(initializer: &ast::Initializer, dtype: &Dtype) -> Result<Self, ()> {
         match initializer {
             ast::Initializer::Expression(expr) => match dtype {
                 Dtype::Int { .. } | Dtype::Pointer { .. } => {
@@ -279,14 +276,58 @@ impl Memory {
         }
     }
 }
+
 #[derive(Debug, PartialEq)]
 pub struct State<'i> {
     /// Maps each global variable to a pointer value.
     ///
     /// When a function call occurs, `registers` can be initialized by `global_registers`
+    pub instr_counter: usize,
     pub global_map: GlobalMap,
+    pub global_registers: GlobalRegisterMap,
     pub stack_frame: StackFrame<'i>,
     pub stack: Vec<StackFrame<'i>>,
     pub memory: Memory,
     pub ir: &'i ir::TranslationUnit,
+}
+
+// Replace memory
+#[derive(Debug, Clone, PartialEq)]
+pub struct GlobalRegisterMap {
+    registers: Vec<Value>,
+    index_map: HashMap<GlobalRegister, usize>,
+}
+
+impl GlobalRegisterMap {
+    pub fn new() -> Self {
+        GlobalRegisterMap {
+            registers: vec![],
+            index_map: Default::default(),
+        }
+    }
+
+    pub fn write(&mut self, global_register: GlobalRegister, value: &Value) {
+        self.registers.push(value.clone());
+        self.index_map
+            .insert(global_register, self.registers.len() - 1);
+    }
+}
+
+// function, rid
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct GlobalRegister(String, ir::RegisterId);
+
+impl GlobalRegister {
+    pub fn new(func_name: &String, rid: ir::RegisterId) -> Self {
+        GlobalRegister(func_name.clone(), rid)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GlobalPc(String, ProgramCounter);
+
+impl GlobalPc {
+    pub fn from_pc(pc: &ProgramCounter, func_name: &String) -> Self {
+        GlobalPc(func_name.clone(), pc.clone())
+    }
 }

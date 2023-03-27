@@ -80,3 +80,8 @@ For n-bit system, table size will be $2^{2n}$. If we make single bit logic gate 
 
 - Should we make any limit for the values' size?
     + for the number of function?
+
+## TODO
+- [ ] Support argv for user input
+- [ ] Make jump table
+- [ ] Extend bit size by using bit operation

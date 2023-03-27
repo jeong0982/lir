@@ -3,8 +3,8 @@ mod execute;
 mod vm_types;
 
 use crate::ir;
-use vm_types::*;
 pub use execute::execute;
+use vm_types::*;
 
 #[derive(Clone, Debug)]
 pub struct ExecTrace {
@@ -13,9 +13,10 @@ pub struct ExecTrace {
 
 #[derive(Clone, Debug)]
 pub struct ExecStep {
-    pub pc: ProgramCounter,
+    pub pc: GlobalPc,
     pub op: ir::Instruction,
-    pub register: RegisterMap,
+    // pub iid: usize,
+    pub register: GlobalRegisterMap,
 }
 
 #[inline]

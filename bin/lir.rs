@@ -9,8 +9,8 @@ use std::{
 };
 
 use lir::{
-    ir, ok_or_exit, write, Deadcode, Gvn, Irgen, Mem2reg, Optimize, Parse, SimplifyCfg, Translate,
-    O1, execute,
+    execute, ir, ok_or_exit, write, Deadcode, Gvn, Irgen, Mem2reg, Optimize, Parse, SimplifyCfg,
+    Translate, O1,
 };
 
 #[derive(Debug, Parser)]

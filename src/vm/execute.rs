@@ -27,7 +27,7 @@ pub enum ExecutionError {
 }
 
 impl<'i> State<'i> {
-    fn step(&mut self, _logs: &mut Vec<ExecStep>) -> Result<Option<Value>, ExecutionError> {
+    fn step(&mut self, logs: &mut Vec<ExecStep>) -> Result<Option<Value>, ExecutionError> {
         let block = self
             .stack_frame
             .func_def
@@ -36,7 +36,8 @@ impl<'i> State<'i> {
             .expect("block matched with `bid` must be exist");
 
         if let Some(instr) = block.instructions.get(self.stack_frame.pc.iid) {
-            self.execute_instruction(instr)?;
+            let log = self.execute_instruction(instr)?;
+            logs.push(log);
             return Ok(None);
         }
 
@@ -50,8 +51,10 @@ impl<'i> State<'i> {
         self.stack_frame = prev_stack_frame;
 
         // create temporary register to write return value
-        let register = RegisterId::temp(self.stack_frame.pc.bid, self.stack_frame.pc.iid);
-        self.stack_frame.registers.write(register, return_value);
+        let rid = RegisterId::temp(self.stack_frame.pc.bid, self.stack_frame.pc.iid);
+        let g_register = GlobalRegister::new(&self.stack_frame.func_name, rid.clone());
+        self.global_registers.write(g_register, &return_value);
+        self.stack_frame.registers.write(rid, return_value);
         self.stack_frame.pc.inc();
         Ok(None)
     }
@@ -78,33 +81,39 @@ impl<'i> State<'i> {
                 func_name: func_name.clone(),
             })?;
         let mut state = State {
+            instr_counter: 0,
             global_map: GlobalMap::default(),
+            global_registers: GlobalRegisterMap::new(),
             stack_frame: StackFrame::new(func_def.bid_init, func_name, func_def),
             stack: Vec::new(),
             memory: Default::default(),
             ir,
         };
+
+        // Unsuppported for variable
+        // only for function definition
         state.alloc_global_variables()?;
 
         // Initialize state with main function and args
         state.write_args(func_def.bid_init, args)?;
-        state.alloc_local_variables()?;
+        // Unsuppported for now
+        // state.alloc_local_variables()?;
 
         Ok(state)
     }
 
-    fn alloc_local_variables(&mut self) -> Result<(), ExecutionError> {
-        // add alloc register
-        for (id, allocation) in self.stack_frame.func_def.allocations.iter().enumerate() {
-            let bid = self.memory.alloc(allocation)?;
-            let ptr = Value::pointer(Some(bid), 0, allocation.deref().clone());
-            let rid = RegisterId::local(id);
+    // fn alloc_local_variables(&mut self) -> Result<(), ExecutionError> {
+    //     // add alloc register
+    //     for (id, allocation) in self.stack_frame.func_def.allocations.iter().enumerate() {
+    //         let bid = self.memory.alloc(allocation)?;
+    //         let ptr = Value::pointer(Some(bid), 0, allocation.deref().clone());
+    //         let rid = RegisterId::local(id);
 
-            self.stack_frame.registers.write(rid, ptr)
-        }
+    //         self.stack_frame.registers.write(rid, ptr)
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     fn write_args(&mut self, bid_init: BlockId, args: Vec<Value>) -> Result<(), ExecutionError> {
         for (i, value) in args.iter().enumerate() {
@@ -116,7 +125,10 @@ impl<'i> State<'i> {
         Ok(())
     }
 
-    fn execute_instruction(&mut self, instruction: &Instruction) -> Result<(), ExecutionError> {
+    fn execute_instruction(
+        &mut self,
+        instruction: &Instruction,
+    ) -> Result<ExecStep, ExecutionError> {
         let result = match instruction {
             Instruction::Nop => Value::unit(),
             Instruction::BinOp { op, lhs, rhs, .. } => {
@@ -177,16 +189,26 @@ impl<'i> State<'i> {
                 // Initialize state with function obtained by callee and args
                 self.write_args(func_def.bid_init, args)?;
 
-                return Ok(());
+                return Ok(ExecStep {
+                    pc: GlobalPc::from_pc(&self.stack_frame.pc, &self.stack_frame.func_name),
+                    op: instruction.clone(),
+                    register: self.global_registers.clone(),
+                });
             }
-            _ => panic!("Unsupported: memory")
+            _ => panic!("Unsupported: memory"),
         };
 
-        let register = RegisterId::temp(self.stack_frame.pc.bid, self.stack_frame.pc.iid);
-        self.stack_frame.registers.write(register, result);
+        let rid = RegisterId::temp(self.stack_frame.pc.bid, self.stack_frame.pc.iid);
+        let g_register = GlobalRegister::new(&self.stack_frame.func_name, rid.clone());
+        self.global_registers.write(g_register, &result);
+        self.stack_frame.registers.write(rid, result);
         self.stack_frame.pc.inc();
 
-        Ok(())
+        Ok(ExecStep {
+            pc: GlobalPc::from_pc(&self.stack_frame.pc, &self.stack_frame.func_name),
+            op: instruction.clone(),
+            register: self.global_registers.clone(),
+        })
     }
 
     fn execute_block_exit(
@@ -223,15 +245,15 @@ impl<'i> State<'i> {
             match decl {
                 Declaration::Variable { dtype, initializer } => {
                     let value = if let Some(initializer) = initializer {
-                        Value::try_from_initializer(initializer, dtype).map_err(
-                            |_| ExecutionError::Misc {
+                        Value::try_from_initializer(initializer, dtype).map_err(|_| {
+                            ExecutionError::Misc {
                                 func_name: self.stack_frame.func_name.clone(),
                                 pc: self.stack_frame.pc,
                                 msg: format!(
                                     "fail to translate `Initializer` and `{dtype}` to `Value`"
                                 ),
-                            },
-                        )?
+                            }
+                        })?
                     } else {
                         Value::default_from_dtype(dtype)
                             .expect("default value must be derived from `dtype`")
@@ -281,10 +303,7 @@ impl<'i> State<'i> {
         }
     }
 
-    fn execute_args(
-        &self,
-        args: &[Operand],
-    ) -> Result<Vec<Value>, ExecutionError> {
+    fn execute_args(&self, args: &[Operand]) -> Result<Vec<Value>, ExecutionError> {
         args.iter()
             .map(|a| self.execute_operand(a))
             .collect::<Result<Vec<_>, _>>()
@@ -318,7 +337,10 @@ impl<'i> State<'i> {
 }
 
 #[inline]
-pub fn execute(ir: &TranslationUnit, args: Vec<Value>) -> Result<(Value, ExecTrace), ExecutionError> {
+pub fn execute(
+    ir: &TranslationUnit,
+    args: Vec<Value>,
+) -> Result<(Value, ExecTrace), ExecutionError> {
     let mut init_state = State::new(ir, args)?;
     init_state.run()
 }
