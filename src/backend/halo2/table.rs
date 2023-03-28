@@ -5,6 +5,7 @@ use halo2_proofs::{
     poly::Rotation,
 };
 
+use crate::backend::halo2::utils::Expr;
 use crate::impl_expr;
 
 pub trait LookupTable<F: FieldExt> {
@@ -47,6 +48,7 @@ pub enum BinOpTag {
 }
 impl_expr!(BinOpTag);
 
+#[derive(Clone, Debug)]
 pub struct BinaryOperationTable {
     pub tag: Column<Fixed>,
     pub lhs: Column<Fixed>,
@@ -64,14 +66,14 @@ impl BinaryOperationTable {
         }
     }
 
-    pub fn load<F: FieldExt>(
-        &self,
-        layouter: &mut impl Layouter<F>,
-    ) -> Result<(), Error> {
-        layouter.assign_region(|| "binop table", |mut region| {
-            // TODO
-            Ok(())
-        })
+    pub fn load<F: FieldExt>(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
+        layouter.assign_region(
+            || "binop table",
+            |mut region| {
+                // TODO
+                Ok(())
+            },
+        )
     }
 }
 
@@ -83,6 +85,7 @@ pub enum UnaryOpTag {
 }
 impl_expr!(UnaryOpTag);
 
+#[derive(Clone, Debug)]
 pub struct UnaryOperationTable {
     pub tag: Column<Fixed>,
     pub operand: Column<Fixed>,
@@ -98,17 +101,18 @@ impl UnaryOperationTable {
         }
     }
 
-    pub fn load<F: FieldExt>(
-        &self,
-        layouter: &mut impl Layouter<F>,
-    ) -> Result<(), Error> {
-        layouter.assign_region(|| "unaryop table", |mut region| {
-            // TODO
-            Ok(())
-        })
+    pub fn load<F: FieldExt>(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
+        layouter.assign_region(
+            || "unaryop table",
+            |mut region| {
+                // TODO
+                Ok(())
+            },
+        )
     }
 }
 
+#[derive(Clone, Copy, Debug)]
 pub enum BlockExitTag {
     JUMP = 1,
     CONDJUMP,
@@ -116,9 +120,10 @@ pub enum BlockExitTag {
 }
 impl_expr!(BlockExitTag);
 
+#[derive(Clone, Debug)]
 pub struct BlockExitTable {
     pub tag: Column<Fixed>,
-    pub cond: Column<Advice>,
+    pub cond: Column<Fixed>,
     pub from: Column<Fixed>,
     pub to: Column<Fixed>,
 }
@@ -127,23 +132,24 @@ impl BlockExitTable {
     pub fn construct<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self {
         Self {
             tag: meta.fixed_column(),
-            cond: meta.advice_column(),
+            cond: meta.fixed_column(),
             from: meta.fixed_column(),
             to: meta.fixed_column(),
         }
     }
 
-    pub fn load<F: FieldExt>(
-        &self,
-        layouter: &mut impl Layouter<F>,
-    ) -> Result<(), Error> {
-        layouter.assign_region(|| "blockexit table", |mut region| {
-            // TODO
-            Ok(())
-        })
+    pub fn load<F: FieldExt>(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
+        layouter.assign_region(
+            || "blockexit table",
+            |mut region| {
+                // TODO
+                Ok(())
+            },
+        )
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct CallTable {
     pub from: Column<Fixed>,
     pub to: Column<Fixed>,
@@ -157,13 +163,13 @@ impl CallTable {
         }
     }
 
-    pub fn load<F: FieldExt>(
-        &self,
-        layouter: &mut impl Layouter<F>,
-    ) -> Result<(), Error> {
-        layouter.assign_region(|| "blockexit table", |mut region| {
-            // TODO
-            Ok(())
-        })
+    pub fn load<F: FieldExt>(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
+        layouter.assign_region(
+            || "blockexit table",
+            |mut region| {
+                // TODO
+                Ok(())
+            },
+        )
     }
 }

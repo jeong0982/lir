@@ -15,5 +15,5 @@ pub use opt::{
     SimplifyCfgEmpty, SimplifyCfgMerge, SimplifyCfgReach, O0, O1,
 };
 pub use utils::*;
-pub use vm::execute;
+pub use vm::{execute, ExecStep, ExecTrace};
 pub use write_base::write;

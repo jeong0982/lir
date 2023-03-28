@@ -294,8 +294,8 @@ pub struct State<'i> {
 // Replace memory
 #[derive(Debug, Clone, PartialEq)]
 pub struct GlobalRegisterMap {
-    registers: Vec<Value>,
-    index_map: HashMap<GlobalRegister, usize>,
+    pub registers: Vec<Value>,
+    pub index_map: HashMap<GlobalRegister, usize>,
 }
 
 impl GlobalRegisterMap {
