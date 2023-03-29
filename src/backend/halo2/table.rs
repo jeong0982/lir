@@ -1,31 +1,12 @@
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Layouter, Region, Value},
-    plonk::{Advice, Column, ConstraintSystem, Error, *},
+    plonk::{Advice, Column, ConstraintSystem, Error, TableColumn, *},
     poly::Rotation,
 };
 
 use crate::backend::halo2::utils::Expr;
 use crate::impl_expr;
-
-pub trait LookupTable<F: FieldExt> {
-    fn columns(&self) -> Vec<Column<Any>>;
-
-    fn advice_columns(&self) -> Vec<Column<Advice>> {
-        self.columns()
-            .iter()
-            .map(|&col| col.try_into())
-            .filter_map(|res| res.ok())
-            .collect()
-    }
-
-    fn table_exprs(&self, meta: &mut VirtualCells<F>) -> Vec<Expression<F>> {
-        self.columns()
-            .iter()
-            .map(|&column| meta.query_any(column, Rotation::cur()))
-            .collect()
-    }
-}
 
 #[derive(Clone, Copy, Debug)]
 pub enum BinOpTag {
@@ -50,27 +31,36 @@ impl_expr!(BinOpTag);
 
 #[derive(Clone, Debug)]
 pub struct BinaryOperationTable {
-    pub tag: Column<Fixed>,
-    pub lhs: Column<Fixed>,
-    pub rhs: Column<Fixed>,
-    pub res: Column<Fixed>,
+    pub tag: TableColumn,
+    pub lhs: TableColumn,
+    pub rhs: TableColumn,
+    pub res: TableColumn,
 }
 
 impl BinaryOperationTable {
     pub fn construct<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self {
         Self {
-            tag: meta.fixed_column(),
-            lhs: meta.fixed_column(),
-            rhs: meta.fixed_column(),
-            res: meta.fixed_column(),
+            tag: meta.lookup_table_column(),
+            lhs: meta.lookup_table_column(),
+            rhs: meta.lookup_table_column(),
+            res: meta.lookup_table_column(),
         }
     }
 
-    pub fn load<F: FieldExt>(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
-        layouter.assign_region(
+    pub fn load<F: FieldExt>(&self, layouter: &mut impl Layouter<F>, precomputed: Vec<[u8; 4]>) -> Result<(), Error> {
+        layouter.assign_table(
             || "binop table",
-            |mut region| {
-                // TODO
+            |mut table| {
+                for (offset, v) in precomputed.iter().enumerate() {
+                    let tag = v[0] as u64;
+                    let lhs = v[1] as u64;
+                    let rhs = v[2] as u64;
+                    let res = v[3] as u64;
+                    table.assign_cell(|| "tag", self.tag, offset, || Value::known(F::from(tag)))?;
+                    table.assign_cell(|| "lhs", self.lhs, offset, || Value::known(F::from(lhs)))?;
+                    table.assign_cell(|| "rhs", self.rhs, offset, || Value::known(F::from(rhs)))?;
+                    table.assign_cell(|| "res", self.res, offset, || Value::known(F::from(res)))?;
+                }
                 Ok(())
             },
         )
@@ -87,25 +77,32 @@ impl_expr!(UnaryOpTag);
 
 #[derive(Clone, Debug)]
 pub struct UnaryOperationTable {
-    pub tag: Column<Fixed>,
-    pub operand: Column<Fixed>,
-    pub res: Column<Fixed>,
+    pub tag: TableColumn,
+    pub operand: TableColumn,
+    pub res: TableColumn,
 }
 
 impl UnaryOperationTable {
     pub fn construct<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self {
         Self {
-            tag: meta.fixed_column(),
-            operand: meta.fixed_column(),
-            res: meta.fixed_column(),
+            tag: meta.lookup_table_column(),
+            operand: meta.lookup_table_column(),
+            res: meta.lookup_table_column(),
         }
     }
 
-    pub fn load<F: FieldExt>(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
-        layouter.assign_region(
+    pub fn load<F: FieldExt>(&self, layouter: &mut impl Layouter<F>, precomputed: Vec<[u8; 3]>) -> Result<(), Error> {
+        layouter.assign_table(
             || "unaryop table",
-            |mut region| {
-                // TODO
+            |mut table| {
+                for (offset, v) in precomputed.iter().enumerate() {
+                    let tag = v[0] as u64;
+                    let operand = v[1] as u64;
+                    let res = v[2] as u64;
+                    table.assign_cell(|| "tag", self.tag, offset, || Value::known(F::from(tag)))?;
+                    table.assign_cell(|| "operand", self.operand, offset, || Value::known(F::from(operand)))?;
+                    table.assign_cell(|| "res", self.res, offset, || Value::known(F::from(res)))?;
+                }
                 Ok(())
             },
         )
@@ -122,26 +119,26 @@ impl_expr!(BlockExitTag);
 
 #[derive(Clone, Debug)]
 pub struct BlockExitTable {
-    pub tag: Column<Fixed>,
-    pub cond: Column<Fixed>,
-    pub from: Column<Fixed>,
-    pub to: Column<Fixed>,
+    pub tag: TableColumn,
+    pub cond: TableColumn,
+    pub from: TableColumn,
+    pub to: TableColumn,
 }
 
 impl BlockExitTable {
     pub fn construct<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self {
         Self {
-            tag: meta.fixed_column(),
-            cond: meta.fixed_column(),
-            from: meta.fixed_column(),
-            to: meta.fixed_column(),
+            tag: meta.lookup_table_column(),
+            cond: meta.lookup_table_column(),
+            from: meta.lookup_table_column(),
+            to: meta.lookup_table_column(),
         }
     }
 
     pub fn load<F: FieldExt>(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
-        layouter.assign_region(
+        layouter.assign_table(
             || "blockexit table",
-            |mut region| {
+            |mut table| {
                 // TODO
                 Ok(())
             },
@@ -151,22 +148,22 @@ impl BlockExitTable {
 
 #[derive(Clone, Debug)]
 pub struct CallTable {
-    pub from: Column<Fixed>,
-    pub to: Column<Fixed>,
+    pub from: TableColumn,
+    pub to: TableColumn,
 }
 
 impl CallTable {
     pub fn construct<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self {
         Self {
-            from: meta.fixed_column(),
-            to: meta.fixed_column(),
+            from: meta.lookup_table_column(),
+            to: meta.lookup_table_column(),
         }
     }
 
     pub fn load<F: FieldExt>(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
-        layouter.assign_region(
+        layouter.assign_table(
             || "blockexit table",
-            |mut region| {
+            |mut table| {
                 // TODO
                 Ok(())
             },
