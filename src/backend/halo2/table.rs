@@ -47,7 +47,11 @@ impl BinaryOperationTable {
         }
     }
 
-    pub fn load<F: FieldExt>(&self, layouter: &mut impl Layouter<F>, precomputed: Vec<[u8; 4]>) -> Result<(), Error> {
+    pub fn load<F: FieldExt>(
+        &self,
+        layouter: &mut impl Layouter<F>,
+        precomputed: Vec<[u8; 4]>,
+    ) -> Result<(), Error> {
         layouter.assign_table(
             || "binop table",
             |mut table| {
@@ -91,7 +95,11 @@ impl UnaryOperationTable {
         }
     }
 
-    pub fn load<F: FieldExt>(&self, layouter: &mut impl Layouter<F>, precomputed: Vec<[u8; 3]>) -> Result<(), Error> {
+    pub fn load<F: FieldExt>(
+        &self,
+        layouter: &mut impl Layouter<F>,
+        precomputed: Vec<[u8; 3]>,
+    ) -> Result<(), Error> {
         layouter.assign_table(
             || "unaryop table",
             |mut table| {
@@ -100,7 +108,12 @@ impl UnaryOperationTable {
                     let operand = v[1] as u64;
                     let res = v[2] as u64;
                     table.assign_cell(|| "tag", self.tag, offset, || Value::known(F::from(tag)))?;
-                    table.assign_cell(|| "operand", self.operand, offset, || Value::known(F::from(operand)))?;
+                    table.assign_cell(
+                        || "operand",
+                        self.operand,
+                        offset,
+                        || Value::known(F::from(operand)),
+                    )?;
                     table.assign_cell(|| "res", self.res, offset, || Value::known(F::from(res)))?;
                 }
                 Ok(())
@@ -168,5 +181,31 @@ impl CallTable {
                 Ok(())
             },
         )
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct RegisterTable {
+    pub index: Column<Fixed>,
+    pub value: Column<Advice>,
+}
+
+impl RegisterTable {
+    pub fn construct<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self {
+        Self {
+            index: meta.fixed_column(),
+            value: meta.advice_column(),
+        }
+    }
+
+    fn assign<F: FieldExt>(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+        row: (Value<F>, Value<F>),
+    ) -> Result<(), Error> {
+        region.assign_fixed(|| "assign index", self.index, offset, || row.0)?;
+        region.assign_advice(|| "assign register value", self.value, offset, || row.1)?;
+        Ok(())
     }
 }

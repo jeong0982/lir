@@ -1,4 +1,8 @@
-use halo2_proofs::{halo2curves::FieldExt, plonk::Expression};
+use halo2_proofs::{
+    circuit::Layouter,
+    halo2curves::FieldExt,
+    plonk::{ConstraintSystem, Error, Expression},
+};
 
 /// Trait that implements functionality to get a constant expression from
 /// commonly used types.
@@ -30,4 +34,24 @@ macro_rules! impl_expr {
             }
         }
     };
+}
+
+pub trait SubCircuitConfig<F: FieldExt> {
+    type ConfigArgs;
+
+    fn new(meta: &mut ConstraintSystem<F>, args: Self::ConfigArgs) -> Self;
+}
+
+pub trait SubCircuit<F: FieldExt> {
+    type Config: SubCircuitConfig<F>;
+
+    fn instance(&self) -> Vec<Vec<F>> {
+        vec![]
+    }
+
+    fn synthesize_sub(
+        &self,
+        config: &Self::Config,
+        layouter: &mut impl Layouter<F>,
+    ) -> Result<(), Error>;
 }

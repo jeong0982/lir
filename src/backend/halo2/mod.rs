@@ -4,11 +4,14 @@ use halo2_proofs::{
     plonk::{Circuit, ConstraintSystem, Error},
 };
 use std::marker::PhantomData;
+mod convert;
 mod table;
 mod utils;
+mod vm_circuit;
 mod witness;
 
 use table::*;
+use utils::SubCircuit;
 
 use crate::ExecTrace;
 
