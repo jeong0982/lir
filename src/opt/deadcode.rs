@@ -19,8 +19,8 @@ impl Optimize<FunctionDefinition> for DeadcodeInner {
             if let Some(name) = a.name() {
                 if unused_alloc.contains(name) {
                 } else {
-                    let from = RegisterId::local(i);
-                    let to = RegisterId::local(allocation.len());
+                    let from = RegisterId::new(i + code.starting_rid);
+                    let to = RegisterId::new(allocation.len() + code.starting_rid);
                     allocation.push(a.clone());
                     replaces.insert(from, to);
                 }

@@ -5,7 +5,7 @@ use halo2_proofs::{
     poly::Rotation,
 };
 
-use crate::backend::halo2::utils::Expr;
+use crate::{backend::halo2::utils::Expr, ExecStep};
 use crate::impl_expr;
 
 #[derive(Clone, Copy, Debug)]
@@ -161,7 +161,9 @@ impl BlockExitTable {
 
 #[derive(Clone, Debug)]
 pub struct CallTable {
+    // instruction number
     pub from: TableColumn,
+    // instruction number
     pub to: TableColumn,
 }
 
@@ -198,11 +200,26 @@ impl RegisterTable {
         }
     }
 
+    pub fn load<F: FieldExt>(&self, layouter: &mut impl Layouter<F>, last_step: ExecStep) -> Result<(), Error> {
+        layouter.assign_region(
+            || "register table",
+            |mut region| {
+                let mut offset = 0;
+                let fixed_col = [self.index];
+                for register_pair in last_step.register_table_assignments::<F>().iter() {
+                    self.assign(&mut region, offset, register_pair);
+                    offset += 1;
+                }
+                Ok(())
+            },
+        )
+    }
+
     fn assign<F: FieldExt>(
         &self,
         region: &mut Region<'_, F>,
         offset: usize,
-        row: (Value<F>, Value<F>),
+        row: &(Value<F>, Value<F>),
     ) -> Result<(), Error> {
         region.assign_fixed(|| "assign index", self.index, offset, || row.0)?;
         region.assign_advice(|| "assign register value", self.value, offset, || row.1)?;

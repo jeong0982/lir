@@ -9,8 +9,13 @@ use std::{
 };
 
 use lir::{
-    execute, ir, ok_or_exit, write, Deadcode, Gvn, Irgen, Mem2reg, Optimize, Parse, SimplifyCfg,
-    Translate, O1,
+    ir,
+    ok_or_exit,
+    write,
+    Irgen,
+    Parse,
+    Translate,
+    // Deadcode, Gvn,  Mem2reg, Optimize, SimplifyCfg, O1,
 };
 
 #[derive(Debug, Parser)]
@@ -117,25 +122,25 @@ fn compile_ir(input: &mut ir::TranslationUnit, output: &mut dyn Write, matches: 
         return;
     }
 
-    if matches.optimize {
-        O1::default().optimize(input);
-    } else {
-        if matches.simplify_cfg {
-            SimplifyCfg::default().optimize(input);
-        }
+    // if matches.optimize {
+    //     O1::default().optimize(input);
+    // } else {
+    //     if matches.simplify_cfg {
+    //         SimplifyCfg::default().optimize(input);
+    //     }
 
-        if matches.mem2reg {
-            Mem2reg::default().optimize(input);
-        }
+    //     if matches.mem2reg {
+    //         Mem2reg::default().optimize(input);
+    //     }
 
-        if matches.deadcode {
-            Deadcode::default().optimize(input);
-        }
+    //     if matches.deadcode {
+    //         Deadcode::default().optimize(input);
+    //     }
 
-        if matches.gvn {
-            Gvn::default().optimize(input);
-        }
-    }
+    //     if matches.gvn {
+    //         Gvn::default().optimize(input);
+    //     }
+    // }
 
     if matches.iroutput {
         write(input, output).unwrap();

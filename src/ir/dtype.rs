@@ -90,11 +90,6 @@ pub enum Dtype {
     Unit,
     Int { width: usize, is_signed: bool },
     Function { ret: Box<Dtype>, params: Vec<Dtype> },
-    Pointer { inner: Box<Dtype> },
-    // Array {
-    //     inner: Box<Dtype>,
-    //     size: usize,
-    // },
 }
 
 impl TryFrom<BaseDtype> for Dtype {
@@ -160,13 +155,6 @@ impl Dtype {
         }
     }
 
-    #[inline]
-    pub fn pointer(inner: Dtype) -> Self {
-        Self::Pointer {
-            inner: Box::new(inner),
-        }
-    }
-
     #[must_use]
     pub fn set_signed(&self, is_signed: bool) -> Self {
         match self {
@@ -187,7 +175,6 @@ impl Dtype {
 
                 Ok((size_of, align_of))
             }
-            Self::Pointer { .. } => Ok((Self::SIZE_OF_INT * 2, Self::SIZE_OF_INT * 2)),
             Self::Function { .. } => Ok((0, 1)),
         }
     }
@@ -205,15 +192,6 @@ impl Dtype {
     pub fn get_function_inner(&self) -> Option<(&Self, &Vec<Self>)> {
         if let Self::Function { ret, params } = self {
             Some((ret.deref(), params))
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    pub fn get_pointer_inner(&self) -> Option<&Self> {
-        if let Self::Pointer { inner, .. } = self {
-            Some(inner.deref())
         } else {
             None
         }
@@ -284,9 +262,6 @@ impl fmt::Display for Dtype {
             }
             Self::Function { ret, params } => {
                 write!(f, "[ret:{} params:({})]", ret, params.iter().format(", "))
-            }
-            Self::Pointer { inner } => {
-                write!(f, "{}*", inner)
             }
         }
     }

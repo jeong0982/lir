@@ -5,3 +5,6 @@ mod cq;
 mod halo2;
 
 use crate::ExecTrace;
+
+
+// Lasso

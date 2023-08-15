@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 mod convert;
 mod table;
 mod utils;
-mod vm_circuit;
+// mod vm_circuit;
 mod witness;
 
 use table::*;

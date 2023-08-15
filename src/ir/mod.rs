@@ -1,5 +1,4 @@
 mod dtype;
-mod interp;
 mod write_ir;
 
 pub use dtype::{Dtype, DtypeError, HasDtype};
@@ -9,7 +8,6 @@ use itertools::Itertools;
 use lang_c::ast;
 use std::collections::BTreeMap;
 use std::fmt;
-use std::hash::{Hash, Hasher};
 
 use crate::write_base::*;
 
@@ -50,7 +48,7 @@ impl TryFrom<Dtype> for Declaration {
             Dtype::Unit { .. } => Err(DtypeError::Misc {
                 message: "A variable of type `void` cannot be declared".to_string(),
             }),
-            Dtype::Int { .. } | Dtype::Pointer { .. } => Ok(Declaration::Variable {
+            Dtype::Int { .. } => Ok(Declaration::Variable {
                 dtype,
                 initializer: None,
             }),
@@ -146,6 +144,7 @@ impl HasDtype for FunctionSignature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionDefinition {
+    pub starting_rid: usize,
     /// Memory allocations for local variables.  The allocation is performed at the beginning of a
     /// function invocation.
     pub allocations: Vec<Named<Dtype>>,
@@ -172,10 +171,10 @@ pub enum Instruction {
         dtype: Dtype,
     },
     Lookup {
-        ptr: Operand,
+        operand: Operand,
     },
     Save {
-        ptr: Operand,
+        operand: Operand,
         value: Operand,
     },
     Call {
@@ -194,7 +193,7 @@ impl HasDtype for Instruction {
             | Self::Call {
                 return_type: dtype, ..
             } => dtype.clone(),
-            Self::Lookup { ptr } => ptr.dtype().clone(),
+            Self::Lookup { operand } => operand.dtype().clone(),
         }
     }
 }
@@ -252,8 +251,8 @@ impl fmt::Display for Instruction {
             Instruction::UnaryOp { op, operand, .. } => {
                 write!(f, "{} {}", op.write_operation(), operand)
             }
-            Instruction::Save { ptr, value } => write!(f, "save {value} {ptr}"),
-            Instruction::Lookup { ptr } => write!(f, "lookup {ptr}"),
+            Instruction::Save { operand, value } => write!(f, "save {value} {operand}"),
+            Instruction::Lookup { operand } => write!(f, "lookup {operand}"),
             Instruction::Call { callee, args, .. } => {
                 write!(
                     f,
@@ -325,82 +324,19 @@ impl HasDtype for Operand {
     }
 }
 
-#[derive(Debug, Eq, Clone, Copy)]
-pub enum RegisterId {
-    Local { aid: usize },
-    Arg { bid: BlockId, aid: usize },
-    Temp { bid: BlockId, iid: usize },
-}
+#[derive(Debug, Eq, Clone, Copy, PartialEq, Hash)]
+pub struct RegisterId(pub usize);
 
 impl RegisterId {
-    pub fn local(aid: usize) -> Self {
-        Self::Local { aid }
-    }
-
-    pub fn arg(bid: BlockId, aid: usize) -> Self {
-        Self::Arg { bid, aid }
-    }
-
-    pub fn temp(bid: BlockId, iid: usize) -> Self {
-        Self::Temp { bid, iid }
-    }
-
-    pub fn is_const(&self, bid_init: BlockId) -> bool {
-        match self {
-            Self::Local { .. } => true,
-            Self::Arg { bid, .. } => bid == &bid_init,
-            _ => false,
-        }
+    pub fn new(i: usize) -> Self {
+        RegisterId(i)
     }
 }
 
 impl fmt::Display for RegisterId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Local { aid } => write!(f, "%l{aid}"),
-            Self::Arg { bid, aid } => write!(f, "%{bid}:p{aid}"),
-            Self::Temp { bid, iid } => write!(f, "%{bid}:i{iid}"),
-        }
-    }
-}
-
-impl PartialEq<RegisterId> for RegisterId {
-    fn eq(&self, other: &RegisterId) -> bool {
-        match (self, other) {
-            (Self::Local { aid }, Self::Local { aid: other_aid }) => aid == other_aid,
-            (
-                Self::Arg { bid, aid },
-                Self::Arg {
-                    bid: other_bid,
-                    aid: other_aid,
-                },
-            ) => bid == other_bid && aid == other_aid,
-            (
-                Self::Temp { bid, iid },
-                Self::Temp {
-                    bid: other_bid,
-                    iid: other_iid,
-                },
-            ) => bid == other_bid && iid == other_iid,
-            _ => false,
-        }
-    }
-}
-
-impl Hash for RegisterId {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            Self::Local { aid } => aid.hash(state),
-            Self::Arg { bid, aid } => {
-                // TODO: needs to distinguish arg/temp?
-                bid.hash(state);
-                aid.hash(state);
-            }
-            Self::Temp { bid, iid } => {
-                bid.hash(state);
-                iid.hash(state);
-            }
-        }
+        let rid = self.0;
+        write!(f, "%{rid}")
     }
 }
 
@@ -504,7 +440,7 @@ impl HasDtype for Constant {
             Self::Int {
                 width, is_signed, ..
             } => Dtype::int(*width).set_signed(*is_signed),
-            Self::GlobalVariable { dtype, .. } => Dtype::pointer(dtype.clone()),
+            Self::GlobalVariable { dtype, .. } => dtype.clone(),
         }
     }
 }

@@ -7,123 +7,112 @@ use crate::*;
 
 impl WriteLine for TranslationUnit {
     fn write_line(&self, indent: usize, write: &mut dyn Write) -> Result<()> {
+        let mut counter: usize = 0;
         for (name, decl) in &self.decls {
             let _ = some_or!(decl.get_variable(), continue);
-            (name, decl).write_line(indent, write)?;
+
+            match decl {
+                Declaration::Variable { dtype, initializer } => {
+                    writeln!(
+                        write,
+                        "var {} @{} = {}",
+                        dtype,
+                        name,
+                        if let Some(init) = initializer {
+                            init.write_string()
+                        } else {
+                            "default".to_string()
+                        }
+                    )?;
+                }
+                _ => panic!("Unreachable: write_ir"),
+            }
         }
 
         for (name, decl) in &self.decls {
             let _ = some_or!(decl.get_function(), continue);
             writeln!(write)?;
-            (name, decl).write_line(indent, write)?;
-        }
 
-        Ok(())
-    }
-}
+            match decl {
+                Declaration::Function {
+                    signature,
+                    definition,
+                } => {
+                    let params = signature.params.iter().format(", ");
 
-impl WriteLine for (&String, &Declaration) {
-    fn write_line(&self, indent: usize, write: &mut dyn Write) -> Result<()> {
-        let name = self.0;
-        let decl = self.1;
+                    if let Some(definition) = definition.as_ref() {
+                        // print function definition
+                        writeln!(write, "fun {} @{} ({}) {{", signature.ret, name, params)?;
+                        // print meta data for function
+                        writeln!(
+                            write,
+                            "init:\n  bid: {}\n  allocations: \n{}",
+                            definition.bid_init,
+                            definition.allocations.iter().format_with("\n", |a, f| {
+                                let res = f(&format_args!(
+                                    "    %{}:{}{}",
+                                    counter,
+                                    a.deref(),
+                                    if let Some(name) = a.name() {
+                                        format!(":{name}")
+                                    } else {
+                                        "".into()
+                                    }
+                                ));
+                                counter += 1;
+                                res
+                            })
+                        )?;
 
-        match decl {
-            Declaration::Variable { dtype, initializer } => {
-                writeln!(
-                    write,
-                    "var {} @{} = {}",
-                    dtype,
-                    name,
-                    if let Some(init) = initializer {
-                        init.write_string()
+                        for (id, block) in &definition.blocks {
+                            writeln!(write, "\nblock {id}:")?;
+                            for phi in block.phinodes.iter() {
+                                write_indent(indent + 1, write)?;
+                                writeln!(
+                                    write,
+                                    "{}:{}{}",
+                                    RegisterId::new(counter),
+                                    phi.deref(),
+                                    if let Some(name) = phi.name() {
+                                        format!(":{name}")
+                                    } else {
+                                        "".into()
+                                    }
+                                )?;
+                                counter += 1;
+                            }
+
+                            for instr in block.instructions.iter() {
+                                write_indent(indent + 1, write)?;
+                                writeln!(
+                                    write,
+                                    "{}:{}{} = {}",
+                                    RegisterId::new(counter),
+                                    instr.dtype(),
+                                    if let Some(name) = instr.name() {
+                                        format!(":{name}")
+                                    } else {
+                                        "".into()
+                                    },
+                                    instr
+                                )?;
+                                counter += 1;
+                            }
+
+                            write_indent(indent + 1, write)?;
+                            writeln!(write, "{}", block.exit)?;
+                        }
+
+                        writeln!(write, "}}")?;
                     } else {
-                        "default".to_string()
+                        // print declaration line only
+                        writeln!(write, "fun {} @{} ({})", signature.ret, name, params)?;
+                        writeln!(write)?;
                     }
-                )?;
-            }
-            Declaration::Function {
-                signature,
-                definition,
-            } => {
-                let params = signature.params.iter().format(", ");
-
-                if let Some(definition) = definition.as_ref() {
-                    // print function definition
-                    writeln!(write, "fun {} @{} ({}) {{", signature.ret, name, params)?;
-                    // print meta data for function
-                    writeln!(
-                        write,
-                        "init:\n  bid: {}\n  allocations: \n{}",
-                        definition.bid_init,
-                        definition
-                            .allocations
-                            .iter()
-                            .enumerate()
-                            .format_with("\n", |(i, a), f| f(&format_args!(
-                                "    %l{}:{}{}",
-                                i,
-                                a.deref(),
-                                if let Some(name) = a.name() {
-                                    format!(":{name}")
-                                } else {
-                                    "".into()
-                                }
-                            )))
-                    )?;
-
-                    for (id, block) in &definition.blocks {
-                        writeln!(write, "\nblock {id}:")?;
-                        (id, block).write_line(indent + 1, write)?;
-                    }
-
-                    writeln!(write, "}}")?;
-                } else {
-                    // print declaration line only
-                    writeln!(write, "fun {} @{} ({})", signature.ret, name, params)?;
-                    writeln!(write)?;
                 }
+                _ => panic!("Unreachable: write_ir"),
             }
         }
-
-        Ok(())
-    }
-}
-
-impl WriteLine for (&BlockId, &Block) {
-    fn write_line(&self, indent: usize, write: &mut dyn Write) -> Result<()> {
-        for (i, phi) in self.1.phinodes.iter().enumerate() {
-            write_indent(indent, write)?;
-            writeln!(
-                write,
-                "{}:{}{}",
-                RegisterId::arg(*self.0, i),
-                phi.deref(),
-                if let Some(name) = phi.name() {
-                    format!(":{name}")
-                } else {
-                    "".into()
-                }
-            )?;
-        }
-
-        for (i, instr) in self.1.instructions.iter().enumerate() {
-            write_indent(indent, write)?;
-            writeln!(
-                write,
-                "{}:{}{} = {}",
-                RegisterId::temp(*self.0, i),
-                instr.dtype(),
-                if let Some(name) = instr.name() {
-                    format!(":{name}")
-                } else {
-                    "".into()
-                },
-                instr
-            )?;
-        }
-
-        write_indent(indent, write)?;
-        writeln!(write, "{}", self.1.exit)?;
 
         Ok(())
     }

@@ -69,6 +69,7 @@ impl Translate<TranslationUnit> for Irgen {
     type Error = IrgenError;
 
     fn translate(&mut self, source: &TranslationUnit) -> Result<Self::Target, Self::Error> {
+        let mut global_rid = 0;
         for ext_decl in &source.0 {
             match ext_decl.node {
                 ExternalDeclaration::Declaration(ref var) => {
@@ -78,7 +79,7 @@ impl Translate<TranslationUnit> for Irgen {
                     panic!("ExternalDeclaration::StaticAssert is unsupported")
                 }
                 ExternalDeclaration::FunctionDefinition(ref func) => {
-                    self.add_function_definition(&func.node)?;
+                    self.add_function_definition(&func.node, &mut global_rid)?;
                 }
             }
         }
@@ -153,7 +154,11 @@ impl Irgen {
         Ok(())
     }
 
-    fn add_function_definition(&mut self, source: &FunctionDefinition) -> Result<(), IrgenError> {
+    fn add_function_definition(
+        &mut self,
+        source: &FunctionDefinition,
+        rid: &mut usize,
+    ) -> Result<(), IrgenError> {
         let specifiers = &source.specifiers;
         let declarator = &source.declarator.node;
 
@@ -207,6 +212,7 @@ impl Irgen {
             tempid_counter: Irgen::TEMPID_COUNTER_INIT,
             // Initial symbol table has scope for global variable already
             symbol_table: vec![global_scope],
+            rid_counter: rid.clone(),
         };
         let mut context = Context::new(irgen.bid_init);
 
@@ -244,6 +250,7 @@ impl Irgen {
         irgen.exit_scope();
 
         let func_def = ir::FunctionDefinition {
+            starting_rid: rid.clone(),
             allocations: irgen.allocations,
             blocks: irgen.blocks,
             bid_init: irgen.bid_init,
@@ -268,7 +275,7 @@ impl Irgen {
         } else {
             panic!("`{name}` must be function declaration")
         }
-
+        *rid = irgen.rid_counter;
         Ok(())
     }
 
@@ -312,12 +319,14 @@ impl Context {
     fn insert_instruction(
         &mut self,
         instr: ir::Instruction,
+        count: &mut usize,
     ) -> Result<ir::Operand, IrgenErrorMessage> {
         let dtype = instr.dtype();
         self.instrs.push(Named::new(None, instr));
 
+        *count += 1;
         Ok(ir::Operand::register(
-            ir::RegisterId::temp(self.bid, self.instrs.len() - 1),
+            ir::RegisterId::new(*count - 1),
             dtype,
         ))
     }
@@ -339,6 +348,7 @@ struct IrgenFunc {
     tempid_counter: usize,
     /// Current symbol table. The initial symbol table has the global variables.
     symbol_table: Vec<HashMap<String, ir::Operand>>,
+    rid_counter: usize,
 }
 
 impl IrgenFunc {
@@ -359,7 +369,8 @@ impl IrgenFunc {
     /// Create a new allocation with type given by `alloc`.
     fn insert_alloc(&mut self, alloc: Named<ir::Dtype>) -> usize {
         self.allocations.push(alloc);
-        self.allocations.len() - 1
+        self.rid_counter += 1;
+        self.rid_counter - 1
     }
 
     /// Insert a new block `context` with exit instruction `exit`.
@@ -771,7 +782,7 @@ impl IrgenFunc {
 
             match &dtype {
                 ir::Dtype::Unit { .. } => todo!(),
-                ir::Dtype::Int { .. } | ir::Dtype::Pointer { .. } => {
+                ir::Dtype::Int { .. } => {
                     let value = if let Some(initializer) = &init_decl.node.initializer {
                         Some(self.translate_initializer(&initializer.node, context)?)
                     } else {
@@ -794,17 +805,20 @@ impl IrgenFunc {
         context: &mut Context,
     ) -> Result<ir::Operand, IrgenErrorMessage> {
         let id = self.insert_alloc(Named::new(Some(var.clone()), dtype.clone()));
-
-        let pointer_type = ir::Dtype::pointer(dtype.clone());
-        let rid = ir::RegisterId::local(id);
-        let ptr = ir::Operand::register(rid, pointer_type);
-        self.insert_symbol_table_entry(var, ptr.clone())?;
+        println!("var: {:?}, rid: {:?} {:?}", var, id, self.rid_counter);
+        let ty = dtype.clone();
+        let rid = ir::RegisterId::new(id);
+        let operand = ir::Operand::register(rid, ty);
+        self.insert_symbol_table_entry(var, operand.clone())?;
 
         if let Some(value) = value {
-            return context.insert_instruction(ir::Instruction::Save { ptr, value });
+            return context.insert_instruction(
+                ir::Instruction::Save { operand, value },
+                &mut self.rid_counter,
+            );
         }
 
-        Ok(ptr)
+        Ok(operand)
     }
 
     fn translate_initializer(
@@ -825,15 +839,13 @@ impl IrgenFunc {
     ) -> Result<ir::Operand, IrgenErrorMessage> {
         match expr {
             Expression::Identifier(identifier) => {
-                let ptr = self.lookup_symbol_table(&identifier.node.name)?;
-                let dtype_or_ptr = ptr.dtype();
-                let ptr_inner_type = dtype_or_ptr
-                    .get_pointer_inner()
-                    .ok_or_else(|| panic!("Operand from symbol table must be pointer type"))?;
-                if ptr_inner_type.get_function_inner().is_some() {
-                    return Ok(ptr);
+                let operand = self.lookup_symbol_table(&identifier.node.name)?;
+                let dtype = operand.dtype();
+                if dtype.get_function_inner().is_some() {
+                    return Ok(operand);
                 }
-                context.insert_instruction(ir::Instruction::Lookup { ptr })
+                context
+                    .insert_instruction(ir::Instruction::Lookup { operand }, &mut self.rid_counter)
             }
             Expression::Constant(constant) => {
                 let constant = ir::Constant::try_from(&constant.node)
@@ -861,9 +873,6 @@ impl IrgenFunc {
         match expr {
             Expression::Identifier(identifier) => self.lookup_symbol_table(&identifier.node.name),
             Expression::UnaryOperator(unary) => match &unary.node.operator.node {
-                UnaryOperator::Indirection => {
-                    self.translate_expr_rvalue(&unary.node.operand.node, context)
-                }
                 _ => Err(IrgenErrorMessage::Misc {
                     message: "This error occurred at 'IrgenFunc::translate_expr_lvalue'"
                         .to_string(),
@@ -887,18 +896,14 @@ impl IrgenFunc {
         assign: ir::Operand,
         context: &mut Context,
     ) -> Result<ir::Operand, IrgenErrorMessage> {
-        let ptr = self.translate_expr_lvalue(operand, context)?;
+        let operand = self.translate_expr_lvalue(operand, context)?;
 
-        if ptr.dtype().get_pointer_inner().is_some() {
-            let instr = ir::Instruction::Save {
-                ptr,
-                value: assign.clone(),
-            };
-            let _ = context.insert_instruction(instr);
-            Ok(assign.clone())
-        } else {
-            panic!("store to different type")
-        }
+        let instr = ir::Instruction::Save {
+            operand,
+            value: assign.clone(),
+        };
+        let _ = context.insert_instruction(instr, &mut self.rid_counter);
+        Ok(assign.clone())
     }
 
     fn translate_conditional(
@@ -926,12 +931,15 @@ impl IrgenFunc {
 
         let merged_dtype = self.merge_dtype(val_then.dtype(), val_else.dtype())?;
         let var = self.alloc_tempid();
-        let ptr = self.translate_alloc(var, merged_dtype, None, context)?;
+        let operand = self.translate_alloc(var, merged_dtype, None, context)?;
 
-        let _ = context_then.insert_instruction(ir::Instruction::Save {
-            ptr: ptr.clone(),
-            value: val_then,
-        });
+        let _ = context_then.insert_instruction(
+            ir::Instruction::Save {
+                operand: operand.clone(),
+                value: val_then,
+            },
+            &mut self.rid_counter,
+        );
         self.insert_block(
             context_then,
             ir::BlockExit::Jump {
@@ -939,17 +947,20 @@ impl IrgenFunc {
             },
         );
 
-        let _ = context_else.insert_instruction(ir::Instruction::Save {
-            ptr: ptr.clone(),
-            value: val_else,
-        });
+        let _ = context_else.insert_instruction(
+            ir::Instruction::Save {
+                operand: operand.clone(),
+                value: val_else,
+            },
+            &mut self.rid_counter,
+        );
         self.insert_block(
             context_else,
             ir::BlockExit::Jump {
                 arg: ir::JumpArg::new(bid_end, Vec::new()),
             },
         );
-        context.insert_instruction(ir::Instruction::Lookup { ptr })
+        context.insert_instruction(ir::Instruction::Lookup { operand }, &mut self.rid_counter)
     }
 
     fn merge_dtype(
@@ -996,12 +1007,6 @@ impl IrgenFunc {
                         Ok(ir::Dtype::INT)
                     }
                 }
-                (ir::Dtype::Pointer { inner, .. }, _) => {
-                    self.merge_dtype(inner.deref().clone(), dtype2)
-                }
-                (_, ir::Dtype::Pointer { inner, .. }) => {
-                    self.merge_dtype(dtype1, inner.deref().clone())
-                }
                 _ => Ok(dtype1.clone()),
             }
         }
@@ -1033,7 +1038,7 @@ impl IrgenFunc {
                     rhs,
                     dtype,
                 };
-                let operand = context.insert_instruction(instr)?;
+                let operand = context.insert_instruction(instr, &mut self.rid_counter)?;
 
                 return Ok(operand);
             }
@@ -1063,15 +1068,17 @@ impl IrgenFunc {
                 let mut context_else = Context::new(bid_else);
 
                 let var = self.alloc_tempid();
-                let ptr = self.translate_alloc(var, dtype, None, context)?;
-                let instr = ir::Instruction::Lookup { ptr: ptr.clone() };
+                let operand_alloc = self.translate_alloc(var, dtype, None, context)?;
+                let instr = ir::Instruction::Lookup {
+                    operand: operand_alloc.clone(),
+                };
                 let constant_zero = ir::Operand::constant(ir::Constant::int(0, ir::Dtype::BOOL));
-                let operand = context.insert_instruction(instr)?;
+                let operand = context.insert_instruction(instr, &mut self.rid_counter)?;
                 let alloc_instr = ir::Instruction::Save {
-                    ptr: ptr.clone(),
+                    operand: operand_alloc.clone(),
                     value: constant_zero,
                 };
-                let _ = context_else.insert_instruction(alloc_instr);
+                let _ = context_else.insert_instruction(alloc_instr, &mut self.rid_counter);
 
                 self.insert_block(
                     context_else,
@@ -1084,10 +1091,10 @@ impl IrgenFunc {
                 let rop = self.translate_typecast_to_bool(rhs, &mut context_then)?;
 
                 let alloc_instr = ir::Instruction::Save {
-                    ptr: ptr.clone(),
+                    operand: operand_alloc.clone(),
                     value: rop,
                 };
-                let _ = context_then.insert_instruction(alloc_instr)?;
+                let _ = context_then.insert_instruction(alloc_instr, &mut self.rid_counter)?;
 
                 self.insert_block(
                     context_then,
@@ -1124,15 +1131,17 @@ impl IrgenFunc {
                 let mut context_else = Context::new(bid_else);
 
                 let var = self.alloc_tempid();
-                let ptr = self.translate_alloc(var, dtype, None, context)?;
-                let instr = ir::Instruction::Lookup { ptr: ptr.clone() };
+                let operand_alloc = self.translate_alloc(var, dtype, None, context)?;
+                let instr = ir::Instruction::Lookup {
+                    operand: operand_alloc.clone(),
+                };
                 let constant_one = ir::Operand::constant(ir::Constant::int(1, ir::Dtype::BOOL));
-                let operand = context.insert_instruction(instr)?;
+                let operand = context.insert_instruction(instr, &mut self.rid_counter)?;
                 let alloc_instr = ir::Instruction::Save {
-                    ptr: ptr.clone(),
+                    operand: operand_alloc.clone(),
                     value: constant_one,
                 };
-                let _ = context_then.insert_instruction(alloc_instr);
+                let _ = context_then.insert_instruction(alloc_instr, &mut self.rid_counter);
 
                 self.insert_block(
                     context_then,
@@ -1145,10 +1154,10 @@ impl IrgenFunc {
                 let rop = self.translate_typecast_to_bool(rhs, &mut context_else)?;
 
                 let alloc_instr = ir::Instruction::Save {
-                    ptr: ptr.clone(),
+                    operand: operand_alloc.clone(),
                     value: rop,
                 };
-                let _ = context_else.insert_instruction(alloc_instr)?;
+                let _ = context_else.insert_instruction(alloc_instr, &mut self.rid_counter)?;
 
                 self.insert_block(
                     context_else,
@@ -1178,7 +1187,7 @@ impl IrgenFunc {
                     rhs,
                     dtype: lhs_dtype,
                 };
-                let operand_calculate = context.insert_instruction(instr)?;
+                let operand_calculate = context.insert_instruction(instr, &mut self.rid_counter)?;
                 let operand = self.translate_assign(lhs, operand_calculate, context)?;
                 return Ok(operand);
             }
@@ -1200,7 +1209,7 @@ impl IrgenFunc {
             rhs,
             dtype,
         };
-        let operand = context.insert_instruction(instr)?;
+        let operand = context.insert_instruction(instr, &mut self.rid_counter)?;
 
         Ok(operand)
     }
@@ -1225,7 +1234,7 @@ impl IrgenFunc {
                     rhs: one,
                     dtype,
                 };
-                let op = context.insert_instruction(instr)?;
+                let op = context.insert_instruction(instr, &mut self.rid_counter)?;
                 self.translate_assign(operand_to, op, context)?;
                 Ok(operand)
             }
@@ -1241,17 +1250,12 @@ impl IrgenFunc {
                     rhs: one,
                     dtype,
                 };
-                let op = context.insert_instruction(instr)?;
+                let op = context.insert_instruction(instr, &mut self.rid_counter)?;
                 self.translate_assign(operand_to, op.clone(), context)?;
                 Ok(op)
             }
             UnaryOperator::Address => self.translate_expr_lvalue(operand_to, context),
-            UnaryOperator::Indirection => {
-                let lv = self.translate_expr_rvalue(&operand_to, context)?;
-                let instr = ir::Instruction::Lookup { ptr: lv };
-                let operand = context.insert_instruction(instr)?;
-                Ok(operand)
-            }
+            UnaryOperator::Indirection => panic!("Indirection operation"),
             _ => {
                 let operand = self.translate_expr_rvalue(&operand_to, context)?;
                 let dtype = operand.dtype();
@@ -1260,7 +1264,7 @@ impl IrgenFunc {
                     operand,
                     dtype,
                 };
-                let operand = context.insert_instruction(instr)?;
+                let operand = context.insert_instruction(instr, &mut self.rid_counter)?;
                 Ok(operand)
             }
         }
@@ -1293,13 +1297,9 @@ impl IrgenFunc {
         context: &mut Context,
     ) -> Result<ir::Operand, IrgenErrorMessage> {
         let callee = self.translate_expr_rvalue(&call.callee.node, context)?;
-        let function_pointer_type = callee.dtype();
-        let function = function_pointer_type.get_pointer_inner().ok_or_else(|| {
-            IrgenErrorMessage::NeedFunctionOrFunctionPointer {
-                callee: callee.clone(),
-            }
-        })?;
-        let (return_type, parameters) = function.get_function_inner().ok_or_else(|| {
+        let function_type = callee.dtype();
+
+        let (return_type, parameters) = function_type.get_function_inner().ok_or_else(|| {
             IrgenErrorMessage::NeedFunctionOrFunctionPointer {
                 callee: callee.clone(),
             }
@@ -1327,11 +1327,14 @@ impl IrgenFunc {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let return_type = return_type.clone();
-        context.insert_instruction(ir::Instruction::Call {
-            callee,
-            args,
-            return_type,
-        })
+        context.insert_instruction(
+            ir::Instruction::Call {
+                callee,
+                args,
+                return_type,
+            },
+            &mut self.rid_counter,
+        )
     }
 
     fn translate_parameter_decl(
@@ -1346,9 +1349,10 @@ impl IrgenFunc {
         }
         for (i, (dtype, var)) in izip!(&signature.params, name_of_params).enumerate() {
             let value = Some(ir::Operand::register(
-                ir::RegisterId::arg(bid_init, i),
+                ir::RegisterId::new(self.rid_counter),
                 dtype.clone(),
             ));
+            println!("translate {}", self.rid_counter);
             let _ = self.translate_alloc(var.clone(), dtype.clone(), value, context)?;
             self.phinodes_init
                 .push(Named::new(Some(var.clone()), dtype.clone()));
@@ -1374,7 +1378,7 @@ impl IrgenFunc {
                 rhs: ir::Operand::constant(ir::Constant::int(0, ir::Dtype::INT)),
                 dtype,
             };
-            let operand = context.insert_instruction(instr)?;
+            let operand = context.insert_instruction(instr, &mut self.rid_counter)?;
             Ok(operand)
         } else {
             Err(IrgenErrorMessage::Misc {
@@ -1443,9 +1447,6 @@ fn name_of_parameter_declaration(parameter_declaration: &ParameterDeclaration) -
 
 fn is_compatible_dtype(dtype1: &ir::Dtype, dtype2: &ir::Dtype) -> bool {
     match (dtype1, dtype2) {
-        (ir::Dtype::Pointer { inner: inner1, .. }, ir::Dtype::Pointer { inner: inner2, .. }) => {
-            is_compatible_dtype(inner1.deref(), inner2.deref())
-        }
         (ir::Dtype::Unit { .. }, ir::Dtype::Unit { .. }) => true,
         (
             ir::Dtype::Int {

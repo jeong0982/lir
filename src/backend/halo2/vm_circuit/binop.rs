@@ -4,9 +4,9 @@ use super::BinaryOperationTable;
 use super::RegisterTable;
 use super::SubCircuit;
 use halo2_proofs::{
-    circuit::Layouter,
+    circuit::{Layouter, SimpleFloorPlanner},
     halo2curves::FieldExt,
-    plonk::{Advice, Column, Error},
+    plonk::{Advice, Circuit, Column, ConstraintSystem, Error},
 };
 
 fn generate_binop_table() -> Vec<[u8; 4]> {
@@ -30,6 +30,7 @@ impl<F: FieldExt> BinOpConfig<F> {
     }
 }
 
+#[derive(Clone, Debug, Default)]
 pub struct BinOpCircuit<F: FieldExt> {
     _marker: PhantomData<F>,
 }
@@ -43,6 +44,26 @@ impl<F: FieldExt> SubCircuit<F> for BinOpCircuit<F> {
         layouter: &mut impl Layouter<F>,
     ) -> Result<(), Error> {
         config.load_binop_table(layouter)?;
+        Ok(())
+    }
+}
+
+impl<F: FieldExt> Circuit<F> for BinOpCircuit<F> {
+    type Config = BinOpConfig<F>;
+    type FloorPlanner = SimpleFloorPlanner;
+
+    fn without_witnesses(&self) -> Self {
+        Self::default()
+    }
+
+    fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+        let binop_table = BinaryOperationTable::construct(meta);
+        // meta.lookup();
+        // let register_table =
+    }
+
+    fn synthesize(&self, config: Self::Config, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
+        // config.register_table.load(&mut layouter, );
         Ok(())
     }
 }
